@@ -1,0 +1,16 @@
+{
+  "runId": "REPLACE_WITH_THE_RETURNED_RUN_ID",
+  "idempotencyKey": "example-discovery-batch-1",
+  "discoveries": [
+    {
+      "url": "https://example.org/bmw-source-example",
+      "title": "Synthetic source-discovery example; not automotive evidence",
+      "relevance": "Demonstrates a reference-only lead. No source has been approved or captured.",
+      "series": ["E30", "E46"],
+      "topics": ["example"],
+      "language": "en",
+      "bodyStyles": ["sedan"],
+      "referrerUrl": "https://example.org/"
+    }
+  ]
+}

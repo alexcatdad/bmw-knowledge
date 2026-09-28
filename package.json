@@ -1,0 +1,43 @@
+{
+  "name": "bmw-knowledge",
+  "version": "1.0.0",
+  "description": "BMW source collection, provenance, and research tooling",
+  "license": "ISC",
+  "author": "",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.7.0",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "convex dev",
+    "convex": "convex",
+    "collection": "tsx scripts/collection.ts",
+    "research": "tsx scripts/research.ts",
+    "research-smoke": "tsx scripts/research-smoke.ts",
+    "storage-smoke": "tsx scripts/storage-smoke.ts",
+    "normalize": "tsx scripts/normalize.ts",
+    "normalization-report": "tsx scripts/normalization-report.ts",
+    "normalization-smoke": "tsx scripts/normalization-smoke.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "check": "pnpm typecheck && pnpm test"
+  },
+  "dependencies": {
+    "@bmw-knowledge/collection": "workspace:*",
+    "@bmw-knowledge/mcp": "workspace:*",
+    "@bmw-knowledge/normalization": "workspace:*",
+    "convex": "^1.46.0"
+  },
+  "devDependencies": {
+    "@edge-runtime/vm": "5.0.0",
+    "@modelcontextprotocol/sdk": "1.30.1",
+    "@types/node": "26.6.3",
+    "convex-test": "0.0.60",
+    "tsx": "4.23.15",
+    "typescript": "7.0.2",
+    "vite": "8.3.1",
+    "vitest": "5.0.2"
+  }
+}
