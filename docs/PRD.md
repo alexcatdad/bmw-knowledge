@@ -1,6 +1,6 @@
 # BMW Knowledge — Collection MVP
 
-**Version:** 0.1  
+**Version:** 0.2
 **Date:** 28 September 2026  
 **Owner:** Alex  
 **Status:** Development baseline; implementation defaults may change after testing real sources.  
@@ -62,6 +62,8 @@ ChatGPT: interactive + scheduled discovery
         direct HTTP acquisition
           [browser service later]
                   |
+     Convex file storage: retained originals
+                  |
        bmw-corpus: public GitHub repo
                   |
           GitHub Actions
@@ -80,7 +82,7 @@ Mac Studio: later embedding and ML workloads
 |---|---|
 | ChatGPT | Research, source discovery, relevance notes, follow-up decisions, and scheduled discovery where the selected execution mode supports the needed tools |
 | Collection MCP | Small authenticated interface to collection operations; implementation belongs in the monorepo |
-| Convex | Sources, research history, jobs, capture metadata, publication references, and initial acquisition actions |
+| Convex | Sources, research history, jobs, capture metadata, native file storage for retained POC originals, publication references, and initial acquisition actions |
 | Public corpus repository | Published captured content, provenance manifests, and small normalized outputs |
 | GitHub Actions | Transform and validate material already acquired and published; no acquisition crawler |
 | Homelab | Optional acquisition/processing runtime; Ryzen 9, 32 GB RAM, existing Woodpecker CI |
@@ -111,6 +113,8 @@ Discoveries may be broader than the acquisition allowlist. New domains are recor
 ### 6.2 Acquire
 
 A submission for the approved source creates a small acquisition job. A Convex Action retrieves the configured URL, verifies the expected response type, records retrieval metadata, and hashes the captured bytes.
+
+For the POC, persist those bytes in native Convex file storage before publication, as selected by the maintainer. Keep the file ID internal and verify its hash and length against immutable capture metadata. Retain originals through publication and processing; a publication failure resumes the same saved capture. This supersedes the initial S3 staging choice for the POC. S3 remains an explicit alternative, with each capture's backend pinned at reservation.
 
 Begin with one ordinary HTML or text page. No browser or multi-page traversal is required. Other formats may be recorded as unsupported leads until needed.
 

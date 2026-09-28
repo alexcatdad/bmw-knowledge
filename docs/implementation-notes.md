@@ -7,19 +7,23 @@ to third-party services. These user clarifications govern the implementation:
 - Manual Deep Research is optional and user initiated. Its cited findings can
   be saved through the eventual application MCP; scheduled discovery need not
   run Deep Research. Keep reports distinguishable from captured source bytes.
-- Capture source bytes into S3-compatible staging before GitHub publication.
+- For the POC, capture source bytes into native Convex file storage before GitHub
+  publication, as explicitly selected by the user after the MinIO route tests.
   Retain them until publication and processing have been verified.
 - Implementation owns the manifest design. Convex owns durable job/retry state;
-  S3 retains the bytes and stable capture envelopes needed to resume publication.
-- Use the existing shared homelab MinIO on `core-01`, with a dedicated bucket and
-  restricted identity. Never reuse `workflow-dev` or root application credentials.
+  native file IDs and immutable capture metadata retain the original evidence.
+- S3 remains an explicit alternative. If selected, use existing shared homelab
+  MinIO on `core-01` with a dedicated bucket and restricted identity. Never reuse
+  `workflow-dev` or root application credentials. This is not a POC prerequisite.
 
 ## First slice
 
-Start with internal maintainer functions and a one-shot developer worker. The
-private MinIO endpoint requires a route from the actual worker host. A cloud
-Convex-to-MinIO acquisition path has not been established; selecting the local
-worker makes this runtime difference explicit instead of claiming FR-05 passed.
+Internal maintainer functions and a one-shot developer worker established the
+first slice. The POC now defaults to the internal Convex Node Action with native
+storage, removing private MinIO routing from acquisition. Backend choice is
+pinned at capture reservation; retries cannot reinterpret a saved S3 capture as
+a Convex file. A successful storage fixture still needs publication and a real
+permitted source before FR-05's full acceptance can be claimed.
 
 The manifest uses version 1, records a source snapshot, capture/job identifiers,
 requested/final URLs, redirect chain, retrieval time, selected HTTP metadata,
@@ -34,7 +38,7 @@ to the maintainer is not the future authenticated research MCP.
 ## Normalization development
 
 The shared UTF-8 HTML/text processor and narrow processing callback are developed
-against labelled fixtures while live staging access is pending. Outputs and
+against labelled fixtures while live corpus publication is pending. Outputs and
 receipts are keyed by capture and exact processor revision: source context can
 change resolved links even when raw bytes have the same hash. The raw artifact
 therefore has no single normalization status. Convex tracks contextual outcomes
@@ -74,14 +78,16 @@ setting selects the host; it is absent from research tool input. Conditional
 scheduling commits with new jobs and explicit retry transitions, preserving
 batch rollback and exact replay.
 
-Developer mode remains the default while the private MinIO cloud route is
-unverified. A bounded internal health probe tests the actual Node runtime without
-credentials or source acquisition. Node Action transport compatibility, health,
-authenticated staging/publication, and real-source acceptance require distinct
-evidence. No new service or recurring task is introduced.
+Convex execution and storage are the POC defaults. Native storage saves raw bytes,
+checks system metadata and re-read bytes, and retains them across publication
+failure. The publisher checks its credential only when publication begins. A
+metadata-only internal inspection verifies stored bytes without issuing a file
+URL. No new service, storage migration platform, or recurring task is introduced.
 
 The native dev deployment compiled successfully. Actual cloud probes failed for
 the private DNS address and timed out for the private IP, while developer-host
 health returned HTTP 200. Temporary deployment endpoints were removed and no
-jobs or source captures were created. Keep developer execution selected while
-the actual acquisition route and dedicated application access remain pending.
+jobs or source captures were created during those earlier probes. These findings
+remain relevant only to the optional S3 path. Hosted native storage, real-source
+publication, actual ChatGPT account integration, and scheduling have separate
+acceptance evidence.

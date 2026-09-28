@@ -16,6 +16,7 @@ type Claim = FunctionReturnType<typeof internal.collection.claimJob>;
 type Status = FunctionReturnType<typeof internal.collection.getStatus>;
 type AcquisitionOutcome = FunctionReturnType<typeof internal.acquisition.run>;
 type WorkerRuntime = "developer" | "convex";
+type StagingBackend = "convex" | "s3";
 
 loadLocalEnvironment();
 
@@ -27,13 +28,17 @@ const help = `Maintainer collection commands (personal Convex dev deployment onl
   pnpm collection status [--job <job-id>] [--limit <1-100>]
   pnpm collection retry --job <job-id>
   pnpm collection runtime set <developer|convex>
+  pnpm collection storage set <convex|s3>
+  pnpm collection storage inspect --job <job-id>
   pnpm collection worker --job <job-id> [--runtime developer|convex]
   pnpm collection doctor [--runtime developer|convex]
 
-Approved jobs run through a Convex Action when the maintainer selects convex
-execution. Developer execution uses the same collection implementation from a
-privately connected host. Both require dedicated S3 and corpus credentials.
-The Convex doctor checks only MinIO health, not authenticated object access.
+The POC defaults to Convex execution and native Convex file storage. Source
+approvals are still required. Staged originals survive publication failures.
+GitHub publication requires a corpus-scoped deployment credential. Storage
+inspection verifies an existing capture's bytes without returning a download URL.
+Developer execution supports explicit S3 staging with dedicated credentials.
+Doctor reports configuration; native storage writes are verified by collection.
 `;
 
 function fail(message: string): never {
@@ -51,6 +56,11 @@ function runtime(value: string): WorkerRuntime {
   return value;
 }
 
+function stagingBackend(value: string): StagingBackend {
+  if (value !== "convex" && value !== "s3") fail("The staging backend must be convex or s3.");
+  return value;
+}
+
 async function worker(jobId: string, selectedRuntime?: WorkerRuntime): Promise<unknown> {
   const configuration = await invoke<Configuration>("collection:getConfiguration", {});
   if (selectedRuntime !== undefined && selectedRuntime !== configuration.workerMode) {
@@ -64,12 +74,19 @@ async function worker(jobId: string, selectedRuntime?: WorkerRuntime): Promise<u
     if (execution.status === "disabled") fail("Convex execution is disabled. Inspect collection config before running work.");
     return { execution, collection: await invoke<Status>("collection:getStatus", { jobId }) };
   }
+  const priorStatus = await invoke<Status>("collection:getStatus", { jobId });
+  const captureBackend = priorStatus?.capture
+    ? (priorStatus.capture.stagingBackend ?? "s3") : configuration.stagingBackend;
+  if (captureBackend !== "s3") {
+    fail("Native Convex storage requires convex execution. Use runtime set convex, or explicitly select S3 for developer execution.");
+  }
   // Missing local settings fail before claiming work.
   const dependencies = createWorkerAdapters(process.env, configuration.corpus);
   const claimed = await invoke<Claim>("collection:claimJob", { jobId }, true);
   if (!claimed) return { jobId, claimed: false, status: await invoke<Status>("collection:getStatus", { jobId }) };
   const { request, attempt } = claimed;
   try {
+    if (claimed.stagingBackend !== "s3") fail("This capture is pinned to Convex storage. Resume it with convex execution.");
     const result = await collectApprovedSource(request, {
       ...dependencies,
       policy: configuration.policy,
@@ -96,6 +113,18 @@ async function worker(jobId: string, selectedRuntime?: WorkerRuntime): Promise<u
 
 async function doctor(selectedRuntime?: WorkerRuntime): Promise<unknown> {
   const configuration = await invoke<Configuration>("collection:getConfiguration", {});
+  if (configuration.stagingBackend === "convex") {
+    return {
+      deployment: target(),
+      worker: selectedRuntime ?? configuration.workerMode,
+      stagingBackend: "convex",
+      configuration: configuration.configuration,
+      nativeStorageWriteVerified: false,
+      nextStep: "Collect an approved source, then use storage inspect --job <job-id> to verify its retained bytes.",
+      ...((selectedRuntime ?? configuration.workerMode) === "developer"
+        ? { executionIssue: "Native Convex storage requires convex execution." } : {}),
+    };
+  }
   if ((selectedRuntime ?? configuration.workerMode) === "convex") {
     return { deployment: target(), ...(await invoke<Record<string, unknown>>("acquisition:probeMinio", {})), minioAuthenticatedAccess: false };
   }
@@ -196,6 +225,15 @@ async function main(): Promise<void> {
     case "runtime":
       if (positionals[1] !== "set" || !positionals[2] || positionals.length !== 3) fail("Use runtime set developer or runtime set convex.");
       result = await cli(["env", "set", "COLLECTION_EXECUTION_MODE", runtime(positionals[2])], true);
+      break;
+    case "storage":
+      if (positionals[1] === "set" && positionals[2] && positionals.length === 3) {
+        result = await cli(["env", "set", "COLLECTION_STAGING_BACKEND", stagingBackend(positionals[2])], true);
+      } else if (positionals[1] === "inspect" && positionals.length === 2 && values.job) {
+        result = await invoke("acquisition:inspectStaging", { jobId: values.job }, false, 9 * 60_000);
+      } else {
+        fail("Use storage set convex, storage set s3, or storage inspect --job <job-id>.");
+      }
       break;
     case "worker":
       if (!values.job) fail("Worker requires --job.");

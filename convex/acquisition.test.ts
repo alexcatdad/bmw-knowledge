@@ -6,7 +6,8 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import {
   CollectionError,
   collectApprovedSource,
-  createWorkerAdapters,
+  createWorkerPublisher,
+  createWorkerStaging,
   GitHubPublisher,
   S3Staging,
   validateStoredCapture,
@@ -22,7 +23,7 @@ import schema from "./schema";
 // transports are replaced; collector policy/bytes/checkpoint logic stays real.
 vi.mock("@bmw-knowledge/collection", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@bmw-knowledge/collection")>();
-  return { ...actual, createWorkerAdapters: vi.fn(actual.createWorkerAdapters), collectApprovedSource: vi.fn(actual.collectApprovedSource) };
+  return { ...actual, createWorkerPublisher: vi.fn(actual.createWorkerPublisher), createWorkerStaging: vi.fn(actual.createWorkerStaging), collectApprovedSource: vi.fn(actual.collectApprovedSource) };
 });
 
 const modules = import.meta.glob("./**/*.ts");
@@ -57,7 +58,7 @@ beforeEach(() => {
   vi.setSystemTime(NOW);
   vi.stubEnv("COLLECTION_APPROVALS_JSON", JSON.stringify([APPROVAL]));
   const configuration = {
-    COLLECTION_MAX_BYTES: undefined, COLLECTION_TIMEOUT_MS: undefined, COLLECTION_EXECUTION_MODE: undefined,
+    COLLECTION_MAX_BYTES: undefined, COLLECTION_TIMEOUT_MS: undefined, COLLECTION_EXECUTION_MODE: "developer", COLLECTION_STAGING_BACKEND: "s3",
     CORPUS_GITHUB_OWNER: undefined, CORPUS_GITHUB_REPO: undefined, CORPUS_GITHUB_BRANCH: undefined,
     CORPUS_GITHUB_TOKEN: "fixture-corpus-token-never-returned", S3_ENDPOINT: "http://minio.private.test:9000",
     S3_BUCKET: "bmw-kb-captures", S3_REGION: "us-east-1", S3_ACCESS_KEY_ID: "bmw-kb-fixture",
@@ -65,7 +66,8 @@ beforeEach(() => {
   };
   for (const [name, value] of Object.entries(configuration)) vi.stubEnv(name, value);
   staged.clear();
-  vi.mocked(createWorkerAdapters).mockClear();
+  vi.mocked(createWorkerPublisher).mockClear();
+  vi.mocked(createWorkerStaging).mockClear();
   vi.mocked(collectApprovedSource).mockClear();
   vi.spyOn(S3Staging.prototype, "load").mockImplementation(async (captureId) => structuredClone(staged.get(captureId) ?? null));
   vi.spyOn(S3Staging.prototype, "save").mockImplementation(async (capture) => {
@@ -85,16 +87,21 @@ afterEach(() => {
 });
 
 describe("transactional acquisition execution mode", () => {
-  test("defaults to developer without schedules; exact mode values and presence are reported safely", async () => {
+  test("defaults to Convex execution and native staging; explicit modes and presence are reported safely", async () => {
     const t = backend();
+    vi.stubEnv("COLLECTION_EXECUTION_MODE", undefined);
+    vi.stubEnv("COLLECTION_STAGING_BACKEND", undefined);
     await acceptedJob(t);
-    expect(await schedules(t)).toEqual([]);
+    expect(await schedules(t)).toHaveLength(1);
     const defaultConfiguration = await t.query(internal.collection.getConfiguration, {});
-    expect(defaultConfiguration.workerMode).toBe("developer");
+    expect(defaultConfiguration.workerMode).toBe("convex");
+    expect(defaultConfiguration.stagingBackend).toBe("convex");
     expect(defaultConfiguration.configuration).toContainEqual({ name: "COLLECTION_EXECUTION_MODE", configured: false });
-    vi.stubEnv("COLLECTION_EXECUTION_MODE", "convex");
+    vi.stubEnv("COLLECTION_EXECUTION_MODE", "developer");
+    vi.stubEnv("COLLECTION_STAGING_BACKEND", "s3");
     const convexConfiguration = await t.query(internal.collection.getConfiguration, {});
-    expect(convexConfiguration.workerMode).toBe("convex");
+    expect(convexConfiguration.workerMode).toBe("developer");
+    expect(convexConfiguration.stagingBackend).toBe("s3");
     expect(convexConfiguration.configuration).toContainEqual({ name: "COLLECTION_EXECUTION_MODE", configured: true });
     expect(JSON.stringify(convexConfiguration)).not.toMatch(/fixture-corpus-token|fixture-s3-secret|minio.private.test/);
     for (const mode of ["", "Convex", "convex ", "arbitrary-private-marker"]) {
@@ -170,7 +177,8 @@ describe("internal Convex Node acquisition action", () => {
     const jobId = await acceptedJob(t);
     expect(await t.action(internal.acquisition.run, { jobId })).toEqual({ jobId, claimed: false, status: "disabled" });
     expect(await t.query(internal.collection.getStatus, { jobId })).toMatchObject({ job: { status: "queued", attempt: 0 }, capture: null });
-    expect(createWorkerAdapters).not.toHaveBeenCalled();
+    expect(createWorkerStaging).not.toHaveBeenCalled();
+    expect(createWorkerPublisher).not.toHaveBeenCalled();
     expect(collectApprovedSource).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();
     expect(S3Staging.prototype.load).not.toHaveBeenCalled();
@@ -190,7 +198,7 @@ describe("internal Convex Node acquisition action", () => {
     const status = await t.query(internal.collection.getStatus, { jobId });
     expect(status).toMatchObject({ job: { status: "succeeded", phase: "published", attempt: 1 }, capture: { status: "published", stagingRetention: "retain", manifest: { fixture: true, source: { url: SOURCE.url } }, publication: { commitSha: "f".repeat(40) } } });
     expect(collectApprovedSource).toHaveBeenCalledTimes(1);
-    const signal = vi.mocked(createWorkerAdapters).mock.calls[0]?.[2]?.signal;
+    const signal = vi.mocked(createWorkerStaging).mock.calls[0]?.[1]?.signal;
     expect(signal).toBeInstanceOf(AbortSignal);
     expect(vi.mocked(collectApprovedSource).mock.calls[0]?.[1].signal).toBe(signal);
     expect(signal?.aborted).toBe(true);
@@ -225,7 +233,7 @@ describe("internal Convex Node acquisition action", () => {
     const status = await t.query(internal.collection.getStatus, { jobId });
     expect(status).toMatchObject({ job: { status: "failed", attempt: 0, finishedAt: NOW.getTime(), error: { code: "WORKER_CONFIGURATION" } }, capture: null });
     expect(JSON.stringify(status)).not.toContain("private-");
-    expect(createWorkerAdapters).not.toHaveBeenCalled();
+    expect(createWorkerStaging).not.toHaveBeenCalled();
     vi.stubEnv("COLLECTION_APPROVALS_JSON", JSON.stringify([APPROVAL]));
     vi.stubEnv("COLLECTION_MAX_BYTES", undefined);
     await t.mutation(internal.collection.retryJob, { jobId });
@@ -321,7 +329,7 @@ describe("internal Convex Node acquisition action", () => {
     const started = new Promise<void>((resolve) => { entered = resolve; });
     let operationAborted = false;
     vi.mocked(S3Staging.prototype.load).mockImplementationOnce(async () => {
-      const signal = vi.mocked(createWorkerAdapters).mock.calls.at(-1)?.[2]?.signal;
+      const signal = vi.mocked(createWorkerStaging).mock.calls.at(-1)?.[1]?.signal;
       if (!signal) throw new Error("Expected the action-wide signal.");
       entered();
       return await new Promise<never>((_resolve, reject) => signal.addEventListener("abort", () => {
@@ -334,7 +342,7 @@ describe("internal Convex Node acquisition action", () => {
     await vi.advanceTimersByTimeAsync(8 * 60 * 1000);
     expect(await pending).toEqual({ jobId, claimed: true, status: "failed", errorCode: "WORKER_TIMEOUT" });
     expect(operationAborted).toBe(true);
-    expect(vi.mocked(collectApprovedSource).mock.calls[0]?.[1].signal).toBe(vi.mocked(createWorkerAdapters).mock.calls[0]?.[2]?.signal);
+    expect(vi.mocked(collectApprovedSource).mock.calls[0]?.[1].signal).toBe(vi.mocked(createWorkerStaging).mock.calls[0]?.[1]?.signal);
     const status = await t.query(internal.collection.getStatus, { jobId });
     expect(status).toMatchObject({ job: { status: "failed", error: { code: "WORKER_TIMEOUT" } }, capture: { status: "reserved" } });
     expect(JSON.stringify(status)).not.toContain("private-timeout-reason-marker");

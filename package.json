@@ -16,6 +16,7 @@
     "collection": "tsx scripts/collection.ts",
     "research": "tsx scripts/research.ts",
     "research-smoke": "tsx scripts/research-smoke.ts",
+    "storage-smoke": "tsx scripts/storage-smoke.ts",
     "normalize": "tsx scripts/normalize.ts",
     "normalization-report": "tsx scripts/normalization-report.ts",
     "normalization-smoke": "tsx scripts/normalization-smoke.ts",

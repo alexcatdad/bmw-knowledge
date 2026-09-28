@@ -14,6 +14,7 @@ import type * as collectionExecution from "../collectionExecution.js";
 import type * as corpus from "../corpus.js";
 import type * as digests from "../digests.js";
 import type * as http from "../http.js";
+import type * as nativeStaging from "../nativeStaging.js";
 import type * as processing from "../processing.js";
 import type * as processingHttp from "../processingHttp.js";
 import type * as research from "../research.js";
@@ -21,6 +22,7 @@ import type * as researchHttp from "../researchHttp.js";
 import type * as researchSecurity from "../researchSecurity.js";
 import type * as researchValidators from "../researchValidators.js";
 import type * as sourceSearch from "../sourceSearch.js";
+import type * as storageChecks from "../storageChecks.js";
 import type * as validators from "../validators.js";
 
 import type {
@@ -36,6 +38,7 @@ declare const fullApi: ApiFromModules<{
   corpus: typeof corpus;
   digests: typeof digests;
   http: typeof http;
+  nativeStaging: typeof nativeStaging;
   processing: typeof processing;
   processingHttp: typeof processingHttp;
   research: typeof research;
@@ -43,6 +46,7 @@ declare const fullApi: ApiFromModules<{
   researchSecurity: typeof researchSecurity;
   researchValidators: typeof researchValidators;
   sourceSearch: typeof sourceSearch;
+  storageChecks: typeof storageChecks;
   validators: typeof validators;
 }>;
 

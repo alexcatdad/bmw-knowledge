@@ -3,6 +3,138 @@
 Reviewed on 2026-09-28. Source: `/Users/alex/Desktop/PRD.md`, version 0.1,
 "BMW Knowledge — Collection MVP".
 
+## Current POC path: native Convex storage
+
+The user's later storage choice supersedes the historical S3 prerequisites below
+for the POC. Execution and staging default to `convex`; no MinIO route, bucket,
+or S3 identity is required. The original source PRD stays unchanged; the local
+baseline is version 0.2. Use the existing personal `bmw-kb` development deployment.
+
+1. Inspect the target and configuration before mutation:
+
+   ```sh
+   git status --short
+   pnpm collection config
+   pnpm collection doctor
+   ```
+
+   Confirm `.env.local` identifies the existing `dev:` deployment and there are
+   no deploy-key or self-hosted overrides. Doctor reports configuration, not a
+   successful native file write. Source approvals remain maintainer controlled.
+
+2. For an existing deployment with explicit older overrides, select the POC:
+
+   ```sh
+   pnpm collection runtime set convex
+   pnpm collection storage set convex
+   ```
+
+   These nonsecret settings affect new capture reservations. Saved captures keep
+   their pinned backend. Legacy captures without a pin resolve to S3. Set the
+   corpus-scoped GitHub credential through deployment secrets, never command
+   arguments/history or research MCP input. Its absence does not prevent native
+   capture; publication then fails with `WORKER_CONFIGURATION` and keeps originals.
+
+3. Review a narrow source approval JSON file using the existing approval contract
+   below, then submit an approved source. A project-owned fixture must use
+   `fixture: true` and remain distinguishable from BMW evidence:
+
+   ```sh
+   pnpm collection approval set /absolute/path/to/reviewed-approvals.json
+   pnpm collection submit --url https://approved.example/path --key unique-capture-key
+   pnpm collection status --job JOB_ID
+   pnpm collection storage inspect --job JOB_ID
+   ```
+
+   Acceptance and explicit retries schedule the internal Node Action atomically.
+   Inspection checks actual retained Blob bytes against manifest SHA-256 and size;
+   it returns only status and integrity metadata, never a download URL or contents.
+   Native storage APIs and database checkpoints are awaited before deadline handling.
+
+4. After fixing a publication credential or other failure, resume the saved capture:
+
+   ```sh
+   pnpm collection retry --job JOB_ID
+   pnpm collection status --job JOB_ID
+   pnpm collection storage inspect --job JOB_ID
+   ```
+
+   Retries preserve capture identity, retrieval time, raw bytes and immutable
+   provenance. Verify publication only through the recorded immutable corpus
+   commit; a staged file is not publication success. No automatic file cleanup is
+   enabled. Interruption, a changed approval/attempt, or checkpoint failure between
+   native Blob creation and its database binding can leave an unreferenced file;
+   the POC does not implement an orphan sweeper. Never delete a file on an uncertain
+   checkpoint acknowledgement: the binding may already have committed.
+   Concurrent identical captures may also create a redundant file before their
+   database bindings select one canonical hash reference.
+
+The [current pricing table](https://www.convex.dev/pricing) includes 1 GB of file
+storage in the free allowance. This implementation keeps the existing per-capture
+limits (512 KiB default, 10 MiB maximum); it does not implement a global quota
+meter or automatically upgrade a plan. Retained files consume the allowance.
+
+S3 remains an explicit alternative: select `storage set s3` and follow its
+dedicated identity/routing checks below. Native captures require Convex execution;
+the developer worker supports S3 captures, including legacy pinned captures.
+
+Implementation verification uses `pnpm check`, native Convex preparation and dev
+push, a hosted Node Action fixture capture, and exact-head hosted CI. Actual
+permitted BMW-source publication, corpus processing, OAuth and scheduled client
+acceptance remain separate MVP gates.
+
+Repeat the hosted storage fixture test only on an identified personal dev
+deployment with no source approvals and no publisher credential:
+
+```sh
+pnpm storage-smoke
+```
+
+This command fetches the fixed project-owned fixture at software revision
+`859254a54abb2f02e133e548bd960a440b0a9671`, verifies its 747 bytes and SHA-256,
+temporarily installs an exact-path `fixture: true` approval, and submits it to the
+scheduled Node Action. It expects publication to fail without the token, verifies
+the retained file, retries, and checks the same file and immutable manifest were
+reused. It removes only its unchanged temporary approval in `finally`, preserving
+any newer maintainer configuration. Labelled fixture records and files remain for
+inspection. The command has no publisher credential of its own and cannot choose
+a real BMW source; keep its personal dev configuration unchanged while it runs.
+
+### Native POC verification on 2026-09-28
+
+- Both strict TypeScript checks passed; `pnpm check` passed 243 tests across 20
+  files, including 16 native storage regressions. Native preparation and dev push
+  completed on `modest-beagle-916`, with Node 24 pinned.
+- The actual hosted Node Action stored and re-read the 747-byte project-owned
+  fixture. SHA-256 is
+  `80d7e96d7d1bbd2f643c4dd99b6204682610a68dfb17ba8fb12fc0af5e15c303`.
+  Job `jd7c8efwhwtsjzjbwj7xhr56z18f83ah`, capture
+  `j973vp1x195tz2qb9n6xav3b3d8f8m50`, source
+  `jh740593qatzbxvhes361v4nkx8f99ga` are labelled fixtures.
+- Publication failed with `WORKER_CONFIGURATION` because the publisher credential
+  is absent. The capture stayed staged with retention `retain`. Retry attempt 2
+  reused the exact file, artifact, capture and manifest; no corpus publication
+  was recorded. A subsequent maintainer storage inspection returned `verified`.
+- Hosted `_storage.sha256` metadata was canonical **base64**, contrary to the
+  current metadata docs' hex description. The implementation accepts only exact
+  64-digit hex or canonical 32-byte base64, converts to the same hash identity,
+  and independently recomputes the stored bytes' hash. Test metadata also uses
+  base64; neither encoding alone substitutes for actual byte verification.
+- Temporary fixture approval was removed in `finally`. Configuration now shows
+  Convex execution/staging defaults, no source approvals and no deployment S3,
+  publisher, processing or research credentials. Private maintainer diagnostics
+  confirm 28 internal operations and four existing HTTP route entries, with no
+  public application RPC or storage download route.
+- Independent review repaired checkpoint recovery after semantic policy rejection
+  and smoke cleanup after native JSON key sorting. Delayed store completion,
+  stale attempts, corrupted/missing files, legacy S3 pins and private research
+  output all have focused regressions. Unbound/redundant retained-file cleanup
+  remains the documented POC limitation.
+
+This establishes hosted native acquisition/staging against a plumbing fixture.
+Real BMW-source publication, corpus normalization/callback, OAuth, manual report
+handoff and scheduled account acceptance remain unverified.
+
 ## Initial PRD review scope
 
 The user requested a review of the PRD. Its implementation handoff is document
@@ -275,9 +407,9 @@ Migration verified on 2026-09-28:
 This migration changes local package management and instructions. It does not
 deploy backend code, create another Convex project, or publish local changes.
 
-## First collection slice
+## First collection slice (historical S3 path)
 
-The current implementation uses internal Convex state functions and a one-shot
+The initial implementation used internal Convex state functions and a one-shot
 maintainer worker. It uses the existing `bmw-kb` personal development deployment;
 do not select production or anonymous setup. Source, manifest, and publication
 approval are separate from the researcher's submitted relevance notes.
@@ -314,7 +446,7 @@ An explicitly labelled `example.org` control fixture was deferred without a job;
 replaying its exact submission key/payload preserved its source ID. This smoke
 test proves the developer control path, not acquisition or publication.
 
-### Dedicated MinIO prerequisite
+### Dedicated MinIO prerequisite for explicit S3 staging
 
 Read the homelab repository's `runbooks/workflow-dev-infra.md` before any
 infrastructure change. The existing service is container `core-minio` on
@@ -349,7 +481,7 @@ Cloud Convex and hosted CI cannot be assumed to have access to this private
 endpoint. Verify DNS/routing from the chosen worker host; CI's unit tests do not
 depend on MinIO or other homelab services.
 
-### Configure and run one source
+### Configure and run one source with S3 staging
 
 Copy the worker variables from `.env.example` into your existing ignored
 `.env.local`, preserving the personal deployment selection. Use a fine-grained
@@ -684,14 +816,15 @@ Both PRs remain drafts and main branches are unchanged.
 ## Convex acquisition runtime
 
 FR-05 calls for acquisition through a Convex Action. `acquisition:run` is an
-internal Node Action around the same collector and S3/GitHub adapters used by the
+internal Node Action around the same collector and GitHub publisher used by the
 developer worker. `convex.json` pins Node 24, matching hosted validation. No new
 worker service, recurring job, or acquisition implementation is introduced.
 
 The maintainer setting `COLLECTION_EXECUTION_MODE` selects `developer` or
-`convex`; its absent default is `developer`. Keep that default until the actual
-cloud runtime has a route to the private MinIO endpoint and its own dedicated
-application credentials. In Convex mode, source submission schedules work in the
+`convex`; its absent default is now `convex`. `COLLECTION_STAGING_BACKEND` defaults
+to native `convex` storage for the POC. The earlier S3-only implementation defaulted
+to developer execution because the private cloud route was unavailable. In Convex
+mode, source submission schedules work in the
 same mutation that creates the accepted job; explicit failed/stale-attempt retry
 schedules the requeued job. Exact submission replay, known/deferred leads, and
 retry of an already queued job do not schedule again. Changing the mode does not
@@ -708,13 +841,13 @@ pnpm collection status --job '<returned-job-id>'
 pnpm collection retry --job '<failed-job-id>'
 ```
 
-Select `convex` only after the route and credentials below have been verified.
-The doctor Action performs a bounded GET of the configured MinIO health endpoint;
+For explicit S3 staging, verify the actual-runtime route and credentials below.
+The S3 doctor Action performs a bounded GET of the configured MinIO health endpoint;
 it does not read or write objects, use credentials, grant approval, or expose
 response bodies. A health response does not prove authenticated object access.
 
 The Node Action reads worker settings from the selected deployment's typed env,
-not from the local worker file. Supply a dedicated bucket, restricted S3 identity,
+not from the local worker file. For S3, supply a dedicated bucket, restricted S3 identity,
 S3 endpoint/region/path style, and corpus-scoped publisher token through deployment
 secrets. Announce the exact development target first, refuse to replace unrelated
 values, and use the existing stdin/from-file env-setting procedure. Never print

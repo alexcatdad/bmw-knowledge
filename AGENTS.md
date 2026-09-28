@@ -11,7 +11,9 @@ Keep `pnpm-lock.yaml` as the dependency lockfile.
 Parallel agent work is allowed when useful; finish agents after their assigned work.
 Log important decisions in `decisions.jsonl` for resumability and audit.
 Keep multi-command development and operations procedures in `RUNBOOK.md`.
-Collection uses a maintainer-only developer worker and internal Convex functions.
+POC collection defaults to an internal Convex Node Action and native file storage.
+Captures pin their backend; preserve original bytes and retry checkpoints.
+The maintainer-only developer worker supports explicitly configured S3 staging.
 The research MCP is a separate restricted interface. Keep its credential distinct
 from worker and processing credentials, and keep developer transport verification
 separate from the actual ChatGPT OAuth connection.

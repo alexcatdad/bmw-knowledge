@@ -6,16 +6,18 @@ in the separate [bmw-corpus](https://github.com/alexcatdad/bmw-corpus) repositor
 Internal Convex job records and a maintainer CLI support collection. One shared
 collector runs in an internal Convex Node Action or on the developer host. It
 captures approved HTML/text, retains the bytes and capture
-metadata in S3-compatible staging, and verifies the raw artifact and provenance
+metadata in native Convex file storage for the POC, and verifies the raw artifact and provenance
 manifest at an immutable GitHub commit before recording publication success.
 Retries resume staged captures. Distinct captures may share a SHA-256 artifact.
 
-The selected shared MinIO is private. Execution defaults to the developer host
-until a cloud route and dedicated deployment credentials are verified. In Convex
-mode, accepted submissions and explicit retries schedule the Node Action in the
-same mutation that records the job. Both runtimes need a tested MinIO route,
-dedicated bucket and restricted credentials. Convex owns job state; source,
-staging, and publication requests share an overall deadline in the Node Action.
+Execution and staging default to Convex. Accepted submissions and explicit
+retries schedule the Node Action in the same mutation that records the job.
+Each capture pins its storage backend and retains its original bytes; inspection
+verifies the stored SHA-256 and length. Missing GitHub credentials leave the
+capture staged and publication failed. File IDs stay internal, with no public
+download endpoint. Existing S3 staging remains an explicit alternative for a
+connected host; MinIO routing and credentials are unnecessary for the POC.
+Source, staging, and publication share an overall deadline in the Node Action.
 
 Use Node.js 24 or newer and the pnpm version pinned in `package.json`:
 
@@ -27,7 +29,7 @@ pnpm research --help
 ```
 
 Follow [RUNBOOK.md](RUNBOOK.md) to connect an existing personal Convex development
-deployment, review source approvals, configure worker secrets, and run a sample.
+deployment, review source approvals, configure the corpus publisher, and run a sample.
 The [project-owned fixture](fixtures/http-source.html) contains no BMW evidence.
 
 [PRD](docs/PRD.md), [implementation decisions](decisions.jsonl), and

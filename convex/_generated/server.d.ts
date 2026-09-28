@@ -33,6 +33,7 @@ type Env = {
   readonly COLLECTION_APPROVALS_JSON: string | undefined;
   readonly COLLECTION_EXECUTION_MODE: string | undefined;
   readonly COLLECTION_MAX_BYTES: string | undefined;
+  readonly COLLECTION_STAGING_BACKEND: string | undefined;
   readonly COLLECTION_TIMEOUT_MS: string | undefined;
   readonly CORPUS_GITHUB_BRANCH: string | undefined;
   readonly CORPUS_GITHUB_OWNER: string | undefined;

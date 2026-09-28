@@ -15,6 +15,7 @@ import {
   submissionResultValidator,
 } from "./validators";
 import { discoveryResultValidator, researchBriefValidator, researchCitationValidator, researchModeValidator, researchRunStatusValidator, unresolvedLeadValidator } from "./researchValidators";
+import { collectionStagingBackendValidator } from "./collectionExecution";
 
 export default defineSchema({
   sources: defineTable({
@@ -71,6 +72,8 @@ export default defineSchema({
     artifactId: v.optional(v.id("artifacts")),
     publication: v.optional(publicationValidator),
     stagingRetention: v.literal("retain"),
+    stagingBackend: v.optional(collectionStagingBackendValidator),
+    storageId: v.optional(v.id("_storage")),
   })
     .index("by_jobId", ["jobId"])
     .index("by_sourceId", ["sourceId"]),
@@ -79,6 +82,7 @@ export default defineSchema({
     sha256: v.string(),
     byteLength: v.number(),
     path: v.string(),
+    storageId: v.optional(v.id("_storage")),
   }).index("by_sha256", ["sha256"]),
 
   processingResults: defineTable({

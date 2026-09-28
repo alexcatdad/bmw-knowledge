@@ -22,12 +22,13 @@ import {
   sameApproval,
 } from "@bmw-knowledge/collection/policy";
 import { ConvexError, v, type Infer } from "convex/values";
-import { env, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { env, internalMutation, internalQuery, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { corpusTarget } from "./corpus";
-import { collectionExecutionMode, collectionExecutionModeValidator } from "./collectionExecution";
+import { collectionExecutionMode, collectionExecutionModeValidator, collectionStagingBackend, collectionStagingBackendValidator, pinnedStagingBackend } from "./collectionExecution";
+import { verifyStorageMetadata } from "./storageChecks";
 import { sourceIndexFields } from "./sourceSearch";
 import {
   captureManifestValidator,
@@ -43,7 +44,7 @@ type Publication = Infer<typeof publicationValidator>;
 
 const RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const CONFIGURATION_NAMES = [
-  "COLLECTION_APPROVALS_JSON", "COLLECTION_MAX_BYTES", "COLLECTION_TIMEOUT_MS", "COLLECTION_EXECUTION_MODE",
+  "COLLECTION_APPROVALS_JSON", "COLLECTION_MAX_BYTES", "COLLECTION_TIMEOUT_MS", "COLLECTION_EXECUTION_MODE", "COLLECTION_STAGING_BACKEND",
   "S3_ENDPOINT", "S3_BUCKET", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_FORCE_PATH_STYLE",
   "CORPUS_GITHUB_OWNER", "CORPUS_GITHUB_REPO", "CORPUS_GITHUB_BRANCH", "CORPUS_GITHUB_TOKEN", "PROCESSING_CALLBACK_SECRET", "RESEARCH_MCP_SECRET", "RESEARCH_SCOPE_JSON",
 ] as const;
@@ -81,7 +82,7 @@ function canonicalJson(value: unknown): string {
   return `{${Object.keys(object).filter((key) => object[key] !== undefined).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(object[key])}`).join(",")}}`;
 }
 
-async function runningJob(ctx: MutationCtx, jobId: Id<"jobs">, attempt: number): Promise<Doc<"jobs">> {
+async function runningJob(ctx: QueryCtx, jobId: Id<"jobs">, attempt: number): Promise<Doc<"jobs">> {
   integer(attempt, "attempt", 1, Number.MAX_SAFE_INTEGER);
   const job = await ctx.db.get("jobs", jobId);
   if (!job) fail("JOB_NOT_FOUND", "The collection job does not exist.");
@@ -91,7 +92,7 @@ async function runningJob(ctx: MutationCtx, jobId: Id<"jobs">, attempt: number):
   return job;
 }
 
-async function reservedCapture(ctx: MutationCtx, job: Doc<"jobs">): Promise<Doc<"captures">> {
+async function reservedCapture(ctx: QueryCtx, job: Doc<"jobs">): Promise<Doc<"captures">> {
   if (!job.captureId) fail("CAPTURE_NOT_RESERVED", "Claim the job before recording its capture.");
   const capture = await ctx.db.get("captures", job.captureId);
   if (!capture || capture.jobId !== job._id || capture.sourceId !== job.sourceId) {
@@ -100,11 +101,15 @@ async function reservedCapture(ctx: MutationCtx, job: Doc<"jobs">): Promise<Doc<
   return capture;
 }
 
-function validateManifest(job: Doc<"jobs">, capture: Doc<"captures">, manifest: CaptureManifest): void {
-  const configuredPolicy = policy();
+function validateManifestIdentity(job: Doc<"jobs">, capture: Doc<"captures">, manifest: CaptureManifest): void {
   if (manifest.jobId !== job._id || manifest.captureId !== capture._id || canonicalJson(manifest.source) !== canonicalJson(job.source)) {
     fail("CAPTURE_IDENTITY_MISMATCH", "The manifest must match the reserved job, capture and source snapshot.");
   }
+}
+
+function assertManifest(job: Doc<"jobs">, capture: Doc<"captures">, manifest: CaptureManifest): void {
+  const configuredPolicy = policy();
+  validateManifestIdentity(job, capture, manifest);
   if (manifest.requestedUrl !== conservativeUrlKey(job.source.url)) {
     fail("CAPTURE_URL_MISMATCH", "The requested URL must match the approved source URL.");
   }
@@ -146,6 +151,19 @@ function validateManifest(job: Doc<"jobs">, capture: Doc<"captures">, manifest: 
     fail("UNSUPPORTED_CONTENT_TYPE", "Only matching HTML or text capture media types are supported.");
   }
   boundedString(manifest.completeness, "completeness", MAX_COMPLETENESS_LENGTH);
+}
+
+function validateManifest(job: Doc<"jobs">, capture: Doc<"captures">, manifest: CaptureManifest): void {
+  try { assertManifest(job, capture, manifest); }
+  catch (error) {
+    // Only ConvexError data survives a V8-to-Node function call. Preserve these
+    // semantic denials so an old exact checkpoint cannot turn them into a
+    // presumed lost acknowledgement and allow publication.
+    if (error instanceof CollectionError) {
+      throw new ConvexError({ code: error.code, message: "The capture did not meet the current maintainer policy and manifest contract." });
+    }
+    throw error;
+  }
 }
 
 function validatePublication(capture: Doc<"captures">, publication: Publication): void {
@@ -220,12 +238,14 @@ export const getConfiguration = internalQuery({
   args: {},
   returns: v.object({
     workerMode: collectionExecutionModeValidator,
+    stagingBackend: collectionStagingBackendValidator,
     policy: collectionPolicyValidator,
     corpus: v.object({ owner: v.string(), repo: v.string(), branch: v.string() }),
     configuration: v.array(v.object({ name: v.string(), configured: v.boolean() })),
   }),
   handler: async () => ({
     workerMode: collectionExecutionMode(),
+    stagingBackend: collectionStagingBackend(),
     policy: policy(),
     corpus: corpusTarget(),
     configuration: CONFIGURATION_NAMES.map((name) => ({ name, configured: env[name] !== undefined && env[name] !== "" })),
@@ -262,6 +282,7 @@ export const claimJob = internalMutation({
     request: v.object({ source: sourceMetadataValidator, jobId: v.string(), captureId: v.string() }),
     attempt: v.number(),
     manifest: v.union(captureManifestValidator, v.null()),
+    stagingBackend: collectionStagingBackendValidator,
   })),
   handler: async (ctx, args) => {
     const job = await ctx.db.get("jobs", args.jobId);
@@ -283,12 +304,24 @@ export const claimJob = internalMutation({
       return null;
     }
     let captureId = job.captureId;
-    if (!captureId) captureId = await ctx.db.insert("captures", { jobId: job._id, sourceId: job.sourceId, status: "reserved", stagingRetention: "retain" });
+    if (!captureId) {
+      let stagingBackend: ReturnType<typeof collectionStagingBackend>;
+      try { stagingBackend = collectionStagingBackend(); }
+      catch (error) {
+        if (!(error instanceof ConvexError) || typeof error.data !== "object" || error.data === null || !("code" in error.data) || error.data.code !== "INVALID_STAGING_BACKEND") throw error;
+        const at = Date.now();
+        await ctx.db.patch("jobs", job._id, { status: "failed", finishedAt: at, error: { code: "WORKER_CONFIGURATION", message: "Collection requires a valid maintained staging backend.", at } });
+        return null;
+      }
+      captureId = await ctx.db.insert("captures", { jobId: job._id, sourceId: job.sourceId, status: "reserved", stagingRetention: "retain", stagingBackend });
+    }
     const capture = await ctx.db.get("captures", captureId);
     if (!capture || capture.jobId !== job._id || capture.sourceId !== job.sourceId) fail("CAPTURE_NOT_RESERVED", "The capture does not match this job.");
+    const stagingBackend = pinnedStagingBackend(capture);
+    if (capture.stagingBackend === undefined) await ctx.db.patch("captures", capture._id, { stagingBackend });
     const attempt = job.attempt + 1;
     await ctx.db.patch("jobs", job._id, { captureId, attempt, approval, status: "running", phase: capture.manifest ? "staged" : "acquiring", startedAt: Date.now(), finishedAt: undefined, error: undefined });
-    return { request: { source: job.source, jobId: job._id, captureId }, attempt, manifest: capture.manifest ?? null };
+    return { request: { source: job.source, jobId: job._id, captureId }, attempt, manifest: capture.manifest ?? null, stagingBackend };
   },
 });
 
@@ -309,8 +342,75 @@ export const retryJob = internalMutation({
   },
 });
 
-export const recordStagedCapture = internalMutation({
+async function nativeRunningCapture(ctx: QueryCtx, jobId: Id<"jobs">, attempt: number) {
+  const job = await runningJob(ctx, jobId, attempt);
+  const capture = await reservedCapture(ctx, job);
+  if (pinnedStagingBackend(capture) !== "convex") fail("STAGING_BACKEND_MISMATCH", "The reserved capture uses a different staging backend.");
+  return { job, capture };
+}
+
+export const getNativeStagingState = internalQuery({
+  args: { jobId: v.id("jobs"), attempt: v.number() },
+  returns: v.object({ captureId: v.id("captures"), manifest: v.union(captureManifestValidator, v.null()), storageId: v.union(v.id("_storage"), v.null()) }),
+  handler: async (ctx, args) => {
+    const { job, capture } = await nativeRunningCapture(ctx, args.jobId, args.attempt);
+    if (!capture.manifest && !capture.storageId) return { captureId: capture._id, manifest: null, storageId: null };
+    if (!capture.manifest || !capture.storageId || !capture.artifactId) fail("STAGING_CHECKPOINT_MISSING", "The native capture is missing its retained file or immutable manifest checkpoint.");
+    validateManifestIdentity(job, capture, capture.manifest);
+    const artifact = await ctx.db.get("artifacts", capture.artifactId);
+    if (!artifact || artifact.storageId !== capture.storageId || artifact.sha256 !== capture.manifest.artifact.sha256 || artifact.byteLength !== capture.manifest.artifact.byteLength || artifact.path !== capture.manifest.artifact.path) {
+      fail("STAGING_CHECKPOINT_MISMATCH", "The retained native file and artifact must match the capture checkpoint.");
+    }
+    await verifyStorageMetadata(ctx, capture.storageId, capture.manifest.artifact);
+    return { captureId: capture._id, manifest: capture.manifest, storageId: capture.storageId };
+  },
+});
+
+export const findNativeArtifact = internalQuery({
   args: { jobId: v.id("jobs"), attempt: v.number(), manifest: captureManifestValidator },
+  returns: v.object({ storageId: v.union(v.id("_storage"), v.null()) }),
+  handler: async (ctx, args) => {
+    const { job, capture } = await nativeRunningCapture(ctx, args.jobId, args.attempt);
+    validateManifestIdentity(job, capture, args.manifest);
+    if (capture.manifest && canonicalJson(capture.manifest) !== canonicalJson(args.manifest)) fail("CAPTURE_IMMUTABLE", "A reserved capture cannot be replaced with different bytes or provenance.");
+    const artifact = await ctx.db.query("artifacts").withIndex("by_sha256", (q) => q.eq("sha256", args.manifest.artifact.sha256)).unique();
+    if (!artifact || !artifact.storageId) return { storageId: null };
+    if (artifact.byteLength !== args.manifest.artifact.byteLength || artifact.path !== args.manifest.artifact.path) fail("ARTIFACT_IDENTITY_MISMATCH", "The recorded content hash has different artifact metadata.");
+    await verifyStorageMetadata(ctx, artifact.storageId, args.manifest.artifact);
+    return { storageId: artifact.storageId };
+  },
+});
+
+export const getStagingInspection = internalQuery({
+  args: { jobId: v.id("jobs") },
+  returns: v.object({
+    stagingBackend: v.union(collectionStagingBackendValidator, v.null()),
+    manifest: v.union(captureManifestValidator, v.null()),
+    storageId: v.union(v.id("_storage"), v.null()),
+    metadataHashEncoding: v.union(v.literal("hex"), v.literal("base64"), v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const job = await ctx.db.get("jobs", args.jobId);
+    if (!job) fail("JOB_NOT_FOUND", "The collection job does not exist.");
+    const capture = job.captureId ? await reservedCapture(ctx, job) : null;
+    if (!capture) return { stagingBackend: null, manifest: null, storageId: null, metadataHashEncoding: null };
+    const stagingBackend = pinnedStagingBackend(capture);
+    if (!capture.manifest) {
+      if (capture.storageId) fail("STAGING_CHECKPOINT_MISMATCH", "The retained native file has no immutable manifest checkpoint.");
+      return { stagingBackend, manifest: null, storageId: null, metadataHashEncoding: null };
+    }
+    validateManifestIdentity(job, capture, capture.manifest);
+    if (stagingBackend === "s3") return { stagingBackend, manifest: capture.manifest, storageId: null, metadataHashEncoding: null };
+    if (!capture.storageId || !capture.artifactId) fail("STAGING_CHECKPOINT_MISSING", "The native capture is missing its retained file or immutable manifest checkpoint.");
+    const artifact = await ctx.db.get("artifacts", capture.artifactId);
+    if (!artifact || artifact.storageId !== capture.storageId || artifact.sha256 !== capture.manifest.artifact.sha256 || artifact.byteLength !== capture.manifest.artifact.byteLength || artifact.path !== capture.manifest.artifact.path) fail("STAGING_CHECKPOINT_MISMATCH", "The retained native file and artifact must match the capture checkpoint.");
+    const metadataHashEncoding = await verifyStorageMetadata(ctx, capture.storageId, capture.manifest.artifact);
+    return { stagingBackend, manifest: capture.manifest, storageId: capture.storageId, metadataHashEncoding };
+  },
+});
+
+export const recordStagedCapture = internalMutation({
+  args: { jobId: v.id("jobs"), attempt: v.number(), manifest: captureManifestValidator, storageId: v.optional(v.id("_storage")) },
   returns: v.null(),
   handler: async (ctx, args) => {
     const job = await runningJob(ctx, args.jobId, args.attempt);
@@ -323,8 +423,20 @@ export const recordStagedCapture = internalMutation({
     if (priorArtifact && (priorArtifact.byteLength !== args.manifest.artifact.byteLength || priorArtifact.path !== args.manifest.artifact.path)) {
       fail("ARTIFACT_IDENTITY_MISMATCH", "The recorded content hash has different artifact metadata.");
     }
+    let storageId: Id<"_storage"> | undefined;
+    if (pinnedStagingBackend(capture) === "convex") {
+      if (!args.storageId) fail("STAGING_CHECKPOINT_MISSING", "Native staging requires the verified retained file checkpoint.");
+      await verifyStorageMetadata(ctx, args.storageId, args.manifest.artifact);
+      if (capture.storageId && capture.storageId !== args.storageId) fail("STORAGE_REFERENCE_IMMUTABLE", "A capture's retained native file reference cannot be replaced.");
+      storageId = capture.storageId ?? priorArtifact?.storageId ?? args.storageId;
+      if (capture.storageId && priorArtifact?.storageId && capture.storageId !== priorArtifact.storageId) fail("STAGING_CHECKPOINT_MISMATCH", "The retained native capture reference must match its artifact checkpoint.");
+      await verifyStorageMetadata(ctx, storageId, args.manifest.artifact);
+    } else if (args.storageId !== undefined || capture.storageId !== undefined) {
+      fail("STAGING_BACKEND_MISMATCH", "S3 capture checkpoints cannot accept a native storage reference.");
+    }
     const artifactId = priorArtifact?._id ?? await ctx.db.insert("artifacts", { sha256: args.manifest.artifact.sha256, byteLength: args.manifest.artifact.byteLength, path: args.manifest.artifact.path });
-    await ctx.db.patch("captures", capture._id, { manifest: args.manifest, artifactId, status: "staged" });
+    if (storageId !== undefined && priorArtifact?.storageId === undefined) await ctx.db.patch("artifacts", artifactId, { storageId });
+    await ctx.db.patch("captures", capture._id, { manifest: args.manifest, artifactId, status: "staged", ...(storageId !== undefined ? { storageId } : {}) });
     await ctx.db.patch("jobs", job._id, { phase: "staged" });
     return null;
   },
@@ -343,6 +455,12 @@ export const recordPublished = internalMutation({
     const capture = await reservedCapture(ctx, job);
     if (!capture.manifest || !capture.artifactId || job.phase !== "staged") fail("CAPTURE_NOT_STAGED", "Persist a staged capture before recording publication.");
     validateManifest(job, capture, capture.manifest);
+    if (pinnedStagingBackend(capture) === "convex") {
+      if (!capture.storageId) fail("STAGING_CHECKPOINT_MISSING", "Native publication requires the retained verified file checkpoint.");
+      const artifact = await ctx.db.get("artifacts", capture.artifactId);
+      if (!artifact || artifact.storageId !== capture.storageId) fail("STAGING_CHECKPOINT_MISMATCH", "The retained native capture reference must match its artifact checkpoint.");
+      await verifyStorageMetadata(ctx, capture.storageId, capture.manifest.artifact);
+    }
     validatePublication(capture, args.publication);
     if (capture.publication && canonicalJson(capture.publication) !== canonicalJson(args.publication)) fail("PUBLICATION_IMMUTABLE", "A capture's publication cannot be replaced with another revision.");
     await ctx.db.patch("captures", capture._id, { status: "published", publication: args.publication });

@@ -98,6 +98,8 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   vi.stubEnv("COLLECTION_APPROVALS_JSON", JSON.stringify([APPROVAL]));
+  vi.stubEnv("COLLECTION_EXECUTION_MODE", "developer");
+  vi.stubEnv("COLLECTION_STAGING_BACKEND", "s3");
   vi.stubEnv("PROCESSING_CALLBACK_SECRET", SECRET);
   for (const name of ["COLLECTION_MAX_BYTES", "COLLECTION_TIMEOUT_MS", "CORPUS_GITHUB_OWNER", "CORPUS_GITHUB_REPO", "CORPUS_GITHUB_BRANCH"]) vi.stubEnv(name, undefined);
 });

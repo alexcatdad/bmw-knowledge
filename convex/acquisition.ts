@@ -1,12 +1,13 @@
 "use node";
 
-import { CollectionError, collectApprovedSource, createWorkerAdapters } from "@bmw-knowledge/collection";
+import { CollectionError, collectApprovedSource, createWorkerPublisher, createWorkerStaging } from "@bmw-knowledge/collection";
 import type { FunctionReturnType } from "convex/server";
 import { ConvexError, v, type Infer } from "convex/values";
 import { internal } from "./_generated/api";
 import type { Id } from "./_generated/dataModel";
 import { env, internalAction, type ActionCtx } from "./_generated/server";
 import { collectionExecutionMode } from "./collectionExecution";
+import { NativeStaging, readNativeCapture } from "./nativeStaging";
 
 const WORKER_TIMEOUT_MS = 8 * 60 * 1000;
 const PROBE_TIMEOUT_MS = 5_000;
@@ -30,12 +31,14 @@ const FAILURE_CODES = [
   "CAPTURE_LENGTH_MISMATCH", "INVALID_ARTIFACT_PATH", "UNSUPPORTED_CONTENT_TYPE", "CAPTURE_IMMUTABLE",
   "ARTIFACT_IDENTITY_MISMATCH", "CAPTURE_NOT_STAGED", "PUBLICATION_TARGET_MISMATCH", "INVALID_PUBLICATION",
   "PUBLICATION_PATH_MISMATCH", "PUBLICATION_REVISION_MISMATCH", "PUBLICATION_IMMUTABLE",
+  "STORAGE_FILE_MISSING", "STORAGE_INTEGRITY_FAILED", "STORAGE_REFERENCE_IMMUTABLE", "STAGING_BACKEND_MISMATCH",
 ] as const;
 type FailureCode = (typeof FAILURE_CODES)[number];
 
 const CONFIGURATION_CODES = [
   "INVALID_EXECUTION_MODE", "INVALID_CORPUS_CONFIGURATION", "INVALID_APPROVAL_CONFIGURATION", "INVALID_COLLECTION_LIMIT",
   "INVALID_STAGING_CONFIGURATION", "INVALID_PUBLICATION_CONFIGURATION", "WORKER_CONFIGURATION",
+  "INVALID_STAGING_BACKEND",
 ] as const;
 
 const resultValidator = v.object({
@@ -120,15 +123,18 @@ export const run = internalAction({
       const configuration: Configuration = await ctx.runQuery(internal.collection.getConfiguration, {});
       requireActive(controller.signal);
       if (configuration.workerMode !== "convex") throw new CollectionError("WORKER_CONFIGURATION", "Collection execution mode changed before acquisition.");
-      const dependencies = createWorkerAdapters(env, configuration.corpus, { signal: controller.signal });
+      const nativeStaging = claim.stagingBackend === "convex" ? new NativeStaging(ctx, { jobId: args.jobId, captureId: claim.request.captureId, attempt: claim.attempt }, controller.signal) : null;
+      const staging = nativeStaging ?? createWorkerStaging(env, { signal: controller.signal });
+      const publisher = createWorkerPublisher(env, configuration.corpus, { signal: controller.signal });
       const result = await collectApprovedSource(claim.request, {
-        ...dependencies,
+        staging, publisher,
         signal: controller.signal,
         policy: configuration.policy,
         ...(claim.manifest === null ? {} : { expectedManifest: claim.manifest }),
         onStaged: async (manifest) => {
           requireActive(controller.signal);
-          await ctx.runMutation(internal.collection.recordStagedCapture, { jobId: args.jobId, attempt: claim.attempt, manifest });
+          if (nativeStaging) await nativeStaging.checkpoint(manifest);
+          else await ctx.runMutation(internal.collection.recordStagedCapture, { jobId: args.jobId, attempt: claim.attempt, manifest });
         },
       });
       requireActive(controller.signal);
@@ -139,6 +145,40 @@ export const run = internalAction({
     } finally {
       clearTimeout(timer);
       controller.abort();
+    }
+  },
+});
+
+const inspectionResultValidator = v.object({
+  jobId: v.id("jobs"),
+  stagingBackend: v.union(v.literal("convex"), v.literal("s3"), v.null()),
+  status: v.union(v.literal("not_staged"), v.literal("verified"), v.literal("external"), v.literal("unavailable")),
+  verified: v.boolean(),
+  byteLength: v.union(v.number(), v.null()),
+  sha256: v.union(v.string(), v.null()),
+  fixture: v.union(v.boolean(), v.null()),
+  retention: v.union(v.literal("retain"), v.null()),
+  metadataHashEncoding: v.union(v.literal("hex"), v.literal("base64"), v.null()),
+  errorCode: v.union(v.null(), v.union(...FAILURE_CODES.map((code) => v.literal(code)))),
+});
+type InspectionResult = Infer<typeof inspectionResultValidator>;
+type InspectionState = FunctionReturnType<typeof internal.collection.getStagingInspection>;
+
+export const inspectStaging = internalAction({
+  args: { jobId: v.id("jobs") },
+  returns: inspectionResultValidator,
+  handler: async (ctx: ActionCtx, args: { jobId: Id<"jobs"> }): Promise<InspectionResult> => {
+    const empty: InspectionResult = { jobId: args.jobId, stagingBackend: null, status: "not_staged", verified: false, byteLength: null, sha256: null, fixture: null, retention: null, metadataHashEncoding: null, errorCode: null };
+    try {
+      const state: InspectionState = await ctx.runQuery(internal.collection.getStagingInspection, args);
+      if (!state.manifest) return { ...empty, stagingBackend: state.stagingBackend, retention: state.stagingBackend === null ? null : "retain" };
+      const metadata = { stagingBackend: state.stagingBackend, byteLength: state.manifest.artifact.byteLength, sha256: state.manifest.artifact.sha256, fixture: state.manifest.fixture, retention: "retain" as const, metadataHashEncoding: state.metadataHashEncoding };
+      if (state.stagingBackend === "s3") return { ...empty, ...metadata, status: "external" };
+      if (!state.storageId) throw new CollectionError("STAGING_CHECKPOINT_MISSING", "The retained native capture has no verified file reference.");
+      await readNativeCapture(ctx, state.manifest, state.storageId);
+      return { ...empty, ...metadata, status: "verified", verified: true };
+    } catch (error) {
+      return { ...empty, status: "unavailable", errorCode: failureCode(error) };
     }
   },
 });

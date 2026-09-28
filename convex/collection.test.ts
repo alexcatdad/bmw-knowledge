@@ -85,6 +85,8 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(NOW);
   vi.stubEnv("COLLECTION_APPROVALS_JSON", JSON.stringify([APPROVAL]));
+  vi.stubEnv("COLLECTION_EXECUTION_MODE", "developer");
+  vi.stubEnv("COLLECTION_STAGING_BACKEND", "s3");
   for (const name of ["COLLECTION_MAX_BYTES", "COLLECTION_TIMEOUT_MS", "CORPUS_GITHUB_OWNER", "CORPUS_GITHUB_REPO", "CORPUS_GITHUB_BRANCH", "CORPUS_GITHUB_TOKEN", "S3_ENDPOINT", "S3_BUCKET", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_FORCE_PATH_STYLE"]) {
     vi.stubEnv(name, undefined);
   }
