@@ -8,4 +8,6 @@ export { approvedRuleForUrl, conservativeUrlKey, policyFromConfiguration, sameAp
 export type { CollectionPolicy, SourceApproval } from "./policy.js";
 export { S3Staging } from "./s3.js";
 export type { S3StagingOptions } from "./s3.js";
+export { createWorkerAdapters } from "./worker.js";
+export type { WorkerEnvironment } from "./worker.js";
 export type { CaptureManifest, CollectionDependencies, CollectRequest, GitHubPublication, Publisher, SourceMetadata, Staging, StoredCapture } from "./types.js";

@@ -3,15 +3,19 @@
 Source collection and research tooling for E30 and E46. Published evidence lives
 in the separate [bmw-corpus](https://github.com/alexcatdad/bmw-corpus) repository.
 
-Internal Convex job records and a maintainer CLI support collection. A one-shot
-worker captures approved HTML/text, retains the bytes and capture
+Internal Convex job records and a maintainer CLI support collection. One shared
+collector runs in an internal Convex Node Action or on the developer host. It
+captures approved HTML/text, retains the bytes and capture
 metadata in S3-compatible staging, and verifies the raw artifact and provenance
 manifest at an immutable GitHub commit before recording publication success.
 Retries resume staged captures. Distinct captures may share a SHA-256 artifact.
 
-The selected shared MinIO is private. Run the worker on a machine with a tested
-route to it, using a dedicated bucket and restricted credentials. Convex owns
-job state. Run the one-shot worker explicitly when live credentials are ready.
+The selected shared MinIO is private. Execution defaults to the developer host
+until a cloud route and dedicated deployment credentials are verified. In Convex
+mode, accepted submissions and explicit retries schedule the Node Action in the
+same mutation that records the job. Both runtimes need a tested MinIO route,
+dedicated bucket and restricted credentials. Convex owns job state; source,
+staging, and publication requests share an overall deadline in the Node Action.
 
 Use Node.js 24 or newer and the pnpm version pinned in `package.json`:
 

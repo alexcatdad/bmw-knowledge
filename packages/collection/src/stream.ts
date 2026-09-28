@@ -1,5 +1,9 @@
 import { CollectionError } from "./errors.js";
 
+export function assertNotAborted(signal: AbortSignal | undefined, code: string, message: string): void {
+  if (signal?.aborted) throw new CollectionError(code, message);
+}
+
 export async function withAbort<T>(promise: Promise<T>, signal: AbortSignal, code: string, message: string): Promise<T> {
   if (signal.aborted) {
     void promise.catch(() => undefined);
@@ -13,12 +17,17 @@ export async function withAbort<T>(promise: Promise<T>, signal: AbortSignal, cod
 }
 
 export async function readResponseBytes(response: Response, maxBytes: number, signal: AbortSignal, timeoutCode: string): Promise<Uint8Array> {
+  if (signal.aborted) {
+    void response.body?.cancel().catch(() => undefined);
+    assertNotAborted(signal, timeoutCode, "The response did not complete before its deadline.");
+  }
   if (response.body === null) return new Uint8Array();
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let length = 0;
   try {
     while (true) {
+      assertNotAborted(signal, timeoutCode, "The response did not complete before its deadline.");
       const { done, value } = await withAbort(reader.read(), signal, timeoutCode, "The response did not complete before its deadline.");
       if (done) break;
       length += value.byteLength;

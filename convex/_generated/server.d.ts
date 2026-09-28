@@ -31,6 +31,7 @@ type Env = {
   readonly CONVEX_CLOUD_URL: string;
   readonly CONVEX_SITE_URL: string;
   readonly COLLECTION_APPROVALS_JSON: string | undefined;
+  readonly COLLECTION_EXECUTION_MODE: string | undefined;
   readonly COLLECTION_MAX_BYTES: string | undefined;
   readonly COLLECTION_TIMEOUT_MS: string | undefined;
   readonly CORPUS_GITHUB_BRANCH: string | undefined;

@@ -2,6 +2,7 @@ import {
   approvedRuleForUrl,
   artifactPathForHash,
   CAPTURE_MEDIA_TYPES,
+  CollectionError,
   conservativeUrlKey,
   FULL_CAPTURE_HTTP_STATUS,
   isBoundedText,
@@ -22,9 +23,11 @@ import {
 } from "@bmw-knowledge/collection/policy";
 import { ConvexError, v, type Infer } from "convex/values";
 import { env, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
+import { internal } from "./_generated/api";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { corpusTarget } from "./corpus";
+import { collectionExecutionMode, collectionExecutionModeValidator } from "./collectionExecution";
 import { sourceIndexFields } from "./sourceSearch";
 import {
   captureManifestValidator,
@@ -40,7 +43,7 @@ type Publication = Infer<typeof publicationValidator>;
 
 const RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const CONFIGURATION_NAMES = [
-  "COLLECTION_APPROVALS_JSON", "COLLECTION_MAX_BYTES", "COLLECTION_TIMEOUT_MS",
+  "COLLECTION_APPROVALS_JSON", "COLLECTION_MAX_BYTES", "COLLECTION_TIMEOUT_MS", "COLLECTION_EXECUTION_MODE",
   "S3_ENDPOINT", "S3_BUCKET", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_FORCE_PATH_STYLE",
   "CORPUS_GITHUB_OWNER", "CORPUS_GITHUB_REPO", "CORPUS_GITHUB_BRANCH", "CORPUS_GITHUB_TOKEN", "PROCESSING_CALLBACK_SECRET", "RESEARCH_MCP_SECRET", "RESEARCH_SCOPE_JSON",
 ] as const;
@@ -63,6 +66,12 @@ function integer(value: number, name: string, minimum: number, maximum: number):
 
 function policy() {
   return policyFromConfiguration(env.COLLECTION_APPROVALS_JSON, env.COLLECTION_MAX_BYTES, env.COLLECTION_TIMEOUT_MS);
+}
+
+async function scheduleAcquisition(ctx: MutationCtx, jobId: Id<"jobs">): Promise<void> {
+  if (collectionExecutionMode() === "convex") {
+    await ctx.scheduler.runAfter(0, internal.acquisition.run, { jobId });
+  }
 }
 
 function canonicalJson(value: unknown): string {
@@ -199,6 +208,7 @@ export const submitSource = internalMutation({
       const sourceSnapshot = { id: source._id, url: source.url, ...(source.title !== undefined ? { title: source.title } : {}), relevance: source.relevance, series: source.series };
       const jobId = await ctx.db.insert("jobs", { sourceId: source._id, source: sourceSnapshot, status: "queued", phase: "queued", attempt: 0, queuedAt: Date.now() });
       await ctx.db.patch("sources", source._id, { latestJobId: jobId });
+      await scheduleAcquisition(ctx, jobId);
       result = { sourceId: source._id, jobId, status: "accepted", reason: null };
     }
     await ctx.db.insert("submissions", { idempotencyKey: args.idempotencyKey, requestFingerprint, result });
@@ -209,13 +219,13 @@ export const submitSource = internalMutation({
 export const getConfiguration = internalQuery({
   args: {},
   returns: v.object({
-    workerMode: v.literal("developer"),
+    workerMode: collectionExecutionModeValidator,
     policy: collectionPolicyValidator,
     corpus: v.object({ owner: v.string(), repo: v.string(), branch: v.string() }),
     configuration: v.array(v.object({ name: v.string(), configured: v.boolean() })),
   }),
   handler: async () => ({
-    workerMode: "developer" as const,
+    workerMode: collectionExecutionMode(),
     policy: policy(),
     corpus: corpusTarget(),
     configuration: CONFIGURATION_NAMES.map((name) => ({ name, configured: env[name] !== undefined && env[name] !== "" })),
@@ -257,7 +267,17 @@ export const claimJob = internalMutation({
     const job = await ctx.db.get("jobs", args.jobId);
     if (!job) fail("JOB_NOT_FOUND", "The collection job does not exist.");
     if (job.status !== "queued") return null;
-    const approval = approvedRuleForUrl(job.source.url, policy());
+    let approval: ReturnType<typeof approvedRuleForUrl>;
+    try {
+      approval = approvedRuleForUrl(job.source.url, policy());
+    } catch (error) {
+      if (!(error instanceof CollectionError) || (error.code !== "INVALID_APPROVAL_CONFIGURATION" && error.code !== "INVALID_COLLECTION_LIMIT")) throw error;
+      // Scheduled actions are at most once. A broken maintainer policy must
+      // leave an ordinary retry available after configuration is repaired.
+      const at = Date.now();
+      await ctx.db.patch("jobs", job._id, { status: "failed", finishedAt: at, error: { code: "WORKER_CONFIGURATION", message: "Collection requires a valid maintainer approval policy and collection limits.", at } });
+      return null;
+    }
     if (!approval) {
       await ctx.db.patch("jobs", job._id, { status: "skipped", finishedAt: Date.now(), error: { code: "SOURCE_NOT_APPROVED", message: "The source approval is absent. The source was not acquired.", at: Date.now() } });
       return null;
@@ -284,6 +304,7 @@ export const retryJob = internalMutation({
     }
     const capture = job.captureId ? await ctx.db.get("captures", job.captureId) : null;
     await ctx.db.patch("jobs", job._id, { status: "queued", phase: capture?.manifest ? "staged" : "queued", queuedAt: Date.now(), startedAt: undefined, finishedAt: undefined, error: undefined });
+    await scheduleAcquisition(ctx, job._id);
     return { jobId: job._id, status: "queued" as const };
   },
 });

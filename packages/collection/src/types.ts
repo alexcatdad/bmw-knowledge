@@ -75,4 +75,6 @@ export interface CollectionDependencies {
   /** A saved Convex checkpoint must be resumed from its exact original staging envelope. */
   expectedManifest?: CaptureManifest;
   fetch?: typeof globalThis.fetch;
+  /** Optional action-wide budget, in addition to the source and adapter deadlines. */
+  signal?: AbortSignal;
 }

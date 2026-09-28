@@ -3,7 +3,7 @@ import { manifestBytes, sha256Bytes, validateCaptureManifest, validateSourceMeta
 import { artifactPathForHash, assertRecordId } from "./paths.js";
 import { approvedRuleForUrl, conservativeUrlKey, FULL_CAPTURE_HTTP_STATUS, MAX_CAPTURE_BYTES, MAX_REDIRECTS, MAX_TIMEOUT_MS, sameApproval, SUPPORTED_MEDIA_TYPES } from "./policy.js";
 import type { CollectionPolicy, SourceApproval } from "./policy.js";
-import { readResponseBytes, withAbort } from "./stream.js";
+import { assertNotAborted, readResponseBytes, withAbort } from "./stream.js";
 import type { CaptureManifest, CollectionDependencies, CollectRequest, GitHubPublication, StoredCapture } from "./types.js";
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -39,6 +39,7 @@ async function fetchCapture(request: CollectRequest, dependencies: CollectionDep
   const requestedUrl = conservativeUrlKey(request.source.url);
   const approval = requireApproval(requestedUrl, policy);
   const controller = new AbortController();
+  const signal = dependencies.signal === undefined ? controller.signal : AbortSignal.any([controller.signal, dependencies.signal]);
   const timer = setTimeout(() => controller.abort(), policy.timeoutMs);
   const redirects: string[] = [];
   let finalUrl = requestedUrl;
@@ -46,16 +47,17 @@ async function fetchCapture(request: CollectRequest, dependencies: CollectionDep
     let response: Response;
     while (true) {
       requireSameApproval(finalUrl, policy, approval);
+      assertNotAborted(signal, "FETCH_TIMEOUT", "Source acquisition exceeded its deadline.");
       response = await withAbort(fetcher(finalUrl, {
         redirect: "manual",
         credentials: "omit",
-        signal: controller.signal,
+        signal,
         headers: {
           Accept: "text/html, text/plain, text/markdown, application/xhtml+xml",
           "Accept-Encoding": "identity",
           "User-Agent": "bmw-knowledge/0.1 collection",
         },
-      }), controller.signal, "FETCH_TIMEOUT", "Source acquisition exceeded its deadline.");
+      }), signal, "FETCH_TIMEOUT", "Source acquisition exceeded its deadline.");
       if (response.redirected || (response.url !== "" && conservativeUrlKey(response.url) !== finalUrl)) {
         throw new CollectionError("UNEXPECTED_REDIRECT", "The HTTP transport followed an unchecked redirect.");
       }
@@ -104,7 +106,7 @@ async function fetchCapture(request: CollectRequest, dependencies: CollectionDep
       contentLength = Number(declaredLength);
       if (contentLength > policy.maxBytes) throw new CollectionError("RESPONSE_TOO_LARGE", "Source response exceeds the configured byte limit.");
     }
-    const bytes = await readResponseBytes(response, policy.maxBytes, controller.signal, "FETCH_TIMEOUT");
+    const bytes = await readResponseBytes(response, policy.maxBytes, signal, "FETCH_TIMEOUT");
     if (contentLength !== null && bytes.byteLength !== contentLength) {
       throw new CollectionError("INCOMPLETE_CAPTURE", "Source response did not match its declared complete body length.");
     }
@@ -134,7 +136,7 @@ async function fetchCapture(request: CollectRequest, dependencies: CollectionDep
     return { manifest, bytes };
   } catch (error) {
     if (error instanceof CollectionError) throw error;
-    if (controller.signal.aborted) throw new CollectionError("FETCH_TIMEOUT", "Source acquisition exceeded its deadline.");
+    if (signal.aborted) throw new CollectionError("FETCH_TIMEOUT", "Source acquisition exceeded its deadline.");
     throw new CollectionError("FETCH_FAILED", "Source acquisition did not complete.");
   } finally {
     controller.abort();
@@ -163,19 +165,30 @@ function verifyResumedCapture(capture: StoredCapture, request: CollectRequest, p
   return validated;
 }
 
+async function withinWorkerBudget<T>(operation: () => Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  assertNotAborted(signal, "WORKER_TIMEOUT", "Collection worker exceeded its total deadline.");
+  // A checkpoint cannot be cancelled after submission. Await it to avoid
+  // recording a worker failure while its database mutation is still running.
+  const result = await operation();
+  assertNotAborted(signal, "WORKER_TIMEOUT", "Collection worker exceeded its total deadline.");
+  return result;
+}
+
 export async function collectApprovedSource(request: CollectRequest, dependencies: CollectionDependencies): Promise<{ manifest: CaptureManifest; publication: GitHubPublication }> {
+  assertNotAborted(dependencies.signal, "WORKER_TIMEOUT", "Collection worker exceeded its total deadline.");
   validatePolicyBounds(dependencies.policy);
   assertRecordId(request.jobId);
   assertRecordId(request.captureId);
   const validatedRequest = { ...request, source: validateSourceMetadata(request.source) };
   requireApproval(validatedRequest.source.url, dependencies.policy);
-  let capture = await dependencies.staging.load(request.captureId);
+  let capture = await withinWorkerBudget(() => dependencies.staging.load(request.captureId), dependencies.signal);
   if (capture === null) {
     if (dependencies.expectedManifest !== undefined) {
       throw new CollectionError("STAGING_CHECKPOINT_MISSING", "The saved capture checkpoint has no staging envelope; restore its original evidence before retrying.");
     }
     capture = await fetchCapture(validatedRequest, dependencies);
-    await dependencies.staging.save(capture);
+    const fetchedCapture = capture;
+    await withinWorkerBudget(() => dependencies.staging.save(fetchedCapture), dependencies.signal);
   }
   capture = verifyResumedCapture(capture, validatedRequest, dependencies.policy);
   if (dependencies.expectedManifest !== undefined) {
@@ -185,7 +198,8 @@ export async function collectApprovedSource(request: CollectRequest, dependencie
       throw new CollectionError("STAGING_CHECKPOINT_MISMATCH", "The staged capture differs from its saved immutable provenance checkpoint.");
     }
   }
-  await dependencies.onStaged(capture.manifest);
-  const publication = await dependencies.publisher.publish(capture);
+  const verifiedCapture = capture;
+  await withinWorkerBudget(() => dependencies.onStaged(verifiedCapture.manifest), dependencies.signal);
+  const publication = await withinWorkerBudget(() => dependencies.publisher.publish(verifiedCapture), dependencies.signal);
   return { manifest: capture.manifest, publication };
 }

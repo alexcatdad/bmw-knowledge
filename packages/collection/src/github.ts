@@ -2,7 +2,7 @@ import { CollectionError } from "./errors.js";
 import { manifestBytes, validateStoredCapture } from "./manifest.js";
 import { manifestPathForCapture } from "./paths.js";
 import { MAX_CAPTURE_BYTES } from "./policy.js";
-import { readResponseBytes, withAbort } from "./stream.js";
+import { assertNotAborted, readResponseBytes, withAbort } from "./stream.js";
 import type { GitHubPublication, Publisher, StoredCapture } from "./types.js";
 
 export interface GitHubPublisherOptions {
@@ -10,6 +10,8 @@ export interface GitHubPublisherOptions {
   repo: string;
   branch: string;
   token: string;
+  /** Shared worker budget; request-specific deadlines still apply. */
+  signal?: AbortSignal;
   /** Injection for deterministic Contents API adapter tests. */
   fetch?: typeof globalThis.fetch;
 }
@@ -27,6 +29,7 @@ export class GitHubPublisher implements Publisher {
   private readonly branch: string;
   private readonly token: string;
   private readonly fetcher: typeof globalThis.fetch;
+  private readonly signal: AbortSignal | undefined;
 
   constructor(options: GitHubPublisherOptions) {
     if (
@@ -45,6 +48,7 @@ export class GitHubPublisher implements Publisher {
     this.branch = options.branch;
     this.token = options.token;
     this.fetcher = options.fetch ?? globalThis.fetch;
+    this.signal = options.signal;
   }
 
   private apiUrl(suffix: string): string {
@@ -53,12 +57,14 @@ export class GitHubPublisher implements Publisher {
 
   private async requestBytes(url: string, method: "GET" | "PUT", accept: string, maxBytes: number, body?: string): Promise<{ status: number; bytes: Uint8Array }> {
     const controller = new AbortController();
+    const signal = this.signal === undefined ? controller.signal : AbortSignal.any([controller.signal, this.signal]);
     const timer = setTimeout(() => controller.abort(), GITHUB_TIMEOUT_MS);
     try {
+      assertNotAborted(signal, "GITHUB_TIMEOUT", "GitHub publication request exceeded its deadline.");
       const response = await withAbort(this.fetcher(url, {
         method,
         redirect: "error",
-        signal: controller.signal,
+        signal,
         headers: {
           Accept: accept,
           Authorization: `Bearer ${this.token}`,
@@ -67,17 +73,19 @@ export class GitHubPublisher implements Publisher {
           ...(body === undefined ? {} : { "Content-Type": "application/json" }),
         },
         ...(body === undefined ? {} : { body }),
-      }), controller.signal, "GITHUB_TIMEOUT", "GitHub publication request exceeded its deadline.");
+      }), signal, "GITHUB_TIMEOUT", "GitHub publication request exceeded its deadline.");
       if (!response.ok) {
         void response.body?.cancel().catch(() => undefined);
         // No remote error body (which can echo secrets or source data) leaves this adapter.
         return { status: response.status, bytes: new Uint8Array() };
       }
-      return { status: response.status, bytes: await readResponseBytes(response, maxBytes, controller.signal, "GITHUB_TIMEOUT") };
+      return { status: response.status, bytes: await readResponseBytes(response, maxBytes, signal, "GITHUB_TIMEOUT") };
     } catch (error) {
       if (error instanceof CollectionError) throw error;
+      if (signal.aborted) throw new CollectionError("GITHUB_TIMEOUT", "GitHub publication request exceeded its deadline.");
       throw new CollectionError("GITHUB_REQUEST_FAILED", "GitHub publication request did not complete.");
     } finally {
+      controller.abort();
       clearTimeout(timer);
     }
   }

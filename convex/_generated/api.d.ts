@@ -8,7 +8,9 @@
  * @module
  */
 
+import type * as acquisition from "../acquisition.js";
 import type * as collection from "../collection.js";
+import type * as collectionExecution from "../collectionExecution.js";
 import type * as corpus from "../corpus.js";
 import type * as digests from "../digests.js";
 import type * as http from "../http.js";
@@ -28,7 +30,9 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  acquisition: typeof acquisition;
   collection: typeof collection;
+  collectionExecution: typeof collectionExecution;
   corpus: typeof corpus;
   digests: typeof digests;
   http: typeof http;

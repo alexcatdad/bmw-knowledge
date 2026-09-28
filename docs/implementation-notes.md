@@ -64,3 +64,24 @@ ChatGPT's documented authenticated connection requires an OAuth provider and a
 real account-specific read/write demonstration. Keep this integration pending
 while proving the SDK transport on the actual personal Convex development
 deployment. No recurring task is created by implementing this interface.
+
+## Convex acquisition action
+
+FR-05 requires a Convex Action. The developer-host worker alone does not satisfy
+that requirement. An internal Node Action now wraps the same acquisition,
+staging, publication, and checkpoint implementation. The maintainer execution
+setting selects the host; it is absent from research tool input. Conditional
+scheduling commits with new jobs and explicit retry transitions, preserving
+batch rollback and exact replay.
+
+Developer mode remains the default while the private MinIO cloud route is
+unverified. A bounded internal health probe tests the actual Node runtime without
+credentials or source acquisition. Node Action transport compatibility, health,
+authenticated staging/publication, and real-source acceptance require distinct
+evidence. No new service or recurring task is introduced.
+
+The native dev deployment compiled successfully. Actual cloud probes failed for
+the private DNS address and timed out for the private IP, while developer-host
+health returned HTTP 200. Temporary deployment endpoints were removed and no
+jobs or source captures were created. Keep developer execution selected while
+the actual acquisition route and dedicated application access remain pending.

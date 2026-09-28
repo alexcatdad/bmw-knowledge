@@ -38,15 +38,18 @@ export function nativeCliEnvironment(environment: NodeJS.ProcessEnv): NodeJS.Pro
   return result;
 }
 
-export async function devCli(args: string[], mutating = false): Promise<string> {
+export async function devCli(args: string[], mutating = false, timeoutMs = 120_000): Promise<string> {
   const deployment = personalDevTarget();
+  if (!Number.isInteger(timeoutMs) || timeoutMs < 1000 || timeoutMs > 540_000) {
+    fail("The developer command timeout must be between one second and nine minutes.");
+  }
   if (mutating) console.error(`target: dev (${deployment}, maintainer developer command)`);
   try {
     const result = await execute("pnpm", ["exec", "convex", ...args, "--deployment", deployment], {
       cwd: root,
       env: nativeCliEnvironment(process.env),
       maxBuffer: 2 * 1024 * 1024,
-      timeout: 120_000,
+      timeout: timeoutMs,
     });
     return result.stdout.trim();
   } catch {
@@ -54,8 +57,8 @@ export async function devCli(args: string[], mutating = false): Promise<string> 
   }
 }
 
-export async function invokeDevFunction<T>(name: string, args: Record<string, unknown>, mutating = false): Promise<T> {
-  const output = await devCli(["run", name, JSON.stringify(args)], mutating);
+export async function invokeDevFunction<T>(name: string, args: Record<string, unknown>, mutating = false, timeoutMs = 120_000): Promise<T> {
+  const output = await devCli(["run", name, JSON.stringify(args)], mutating, timeoutMs);
   try {
     return parseConvexOutput(output) as T;
   } catch {

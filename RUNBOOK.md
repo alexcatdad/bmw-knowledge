@@ -680,3 +680,89 @@ The PR title and body now describe collection, normalization, and the research
 interface together. The separate corpus caller remains pinned to its previously
 verified normalization commit; research changes do not change that processor.
 Both PRs remain drafts and main branches are unchanged.
+
+## Convex acquisition runtime
+
+FR-05 calls for acquisition through a Convex Action. `acquisition:run` is an
+internal Node Action around the same collector and S3/GitHub adapters used by the
+developer worker. `convex.json` pins Node 24, matching hosted validation. No new
+worker service, recurring job, or acquisition implementation is introduced.
+
+The maintainer setting `COLLECTION_EXECUTION_MODE` selects `developer` or
+`convex`; its absent default is `developer`. Keep that default until the actual
+cloud runtime has a route to the private MinIO endpoint and its own dedicated
+application credentials. In Convex mode, source submission schedules work in the
+same mutation that creates the accepted job; explicit failed/stale-attempt retry
+schedules the requeued job. Exact submission replay, known/deferred leads, and
+retry of an already queued job do not schedule again. Changing the mode does not
+backfill earlier queued jobs.
+
+Use these fixed developer commands with the identified personal dev deployment:
+
+```sh
+pnpm collection config
+pnpm collection doctor --runtime convex
+pnpm collection runtime set convex
+pnpm collection submit --url '<approved-https-source>' --key '<unique-key>'
+pnpm collection status --job '<returned-job-id>'
+pnpm collection retry --job '<failed-job-id>'
+```
+
+Select `convex` only after the route and credentials below have been verified.
+The doctor Action performs a bounded GET of the configured MinIO health endpoint;
+it does not read or write objects, use credentials, grant approval, or expose
+response bodies. A health response does not prove authenticated object access.
+
+The Node Action reads worker settings from the selected deployment's typed env,
+not from the local worker file. Supply a dedicated bucket, restricted S3 identity,
+S3 endpoint/region/path style, and corpus-scoped publisher token through deployment
+secrets. Announce the exact development target first, refuse to replace unrelated
+values, and use the existing stdin/from-file env-setting procedure. Never print
+secrets or put them in command arguments. Worker setting validation is shared
+with the developer CLI, including reserved shared identity/bucket exclusions and
+corpus target consistency.
+
+For one existing queued job, `pnpm collection worker --job '<job-id>'` invokes the
+selected runtime. An explicit `--runtime` must agree with the maintainer setting.
+The Convex call waits up to nine minutes and a failed action exits nonzero with a
+safe code; inspect status before retrying a lost CLI acknowledgement. Switching
+back to the private developer host uses `pnpm collection runtime set developer`
+and that host's scoped local credentials.
+
+The Node Action has an eight-minute overall deadline in addition to per-request
+limits. Its abort signal reaches source fetch, S3 reads/writes, GitHub requests,
+and response-body reads. It awaits work and checkpoints, preserving staged bytes
+for retry and reserving time to record a failure before the platform limit.
+Mode changes, stale attempts, missing configuration, revoked source approval,
+and lost publication acknowledgements cannot fabricate a completed capture.
+
+The current platform limits and Node version configuration are documented in
+[Convex limits](https://docs.convex.dev/production/state/limits) and
+[Convex runtimes](https://docs.convex.dev/functions/runtimes).
+
+For an actual-runtime health probe while endpoint configuration is absent:
+verify `collection config` shows developer mode, no source approvals or jobs,
+and no deployment S3 endpoint; temporarily set only the approved nonsecret
+endpoint on that personal dev deployment; run `doctor --runtime convex`; remove
+the temporary endpoint in `finally`; verify configuration and jobs are unchanged.
+Stop if existing configuration would be overwritten. This probe cannot establish
+FR-05 or first-source acceptance without authenticated storage/publication and
+actual captured bytes.
+
+Verification on 2026-09-28:
+
+- Both strict TypeScript projects and all 220 tests across 19 files passed.
+- Native codegen and dev push compiled the Action on `modest-beagle-916`.
+  Deployed metadata lists 24 internal operations, including both acquisition
+  Actions, and four HTTP route entries. Node 24 is pinned in `convex.json`.
+- The actual Convex Node probe returned `PROBE_FAILED` for the approved private
+  DNS address and `PROBE_TIMEOUT` for the private IP. Neither returned an HTTP
+  response. MinIO health from the developer host returned HTTP 200.
+- Both temporary endpoint settings were removed in `finally`; configuration was
+  restored exactly, developer mode retained, and the live job list stayed empty.
+  Unauthenticated MCP and processing requests still returned 401.
+
+The acquisition Action is implemented and deployed for development. A completed
+real capture through that Action remains pending until its runtime can reach
+MinIO and has dedicated credentials, a corpus publisher token, and an approved
+source. Authenticated object access was not exercised by the health probe.

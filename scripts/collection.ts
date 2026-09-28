@@ -5,8 +5,7 @@ import type { FunctionReturnType } from "convex/server";
 import type { internal } from "../convex/_generated/api.js";
 import {
   CollectionError,
-  GitHubPublisher,
-  S3Staging,
+  createWorkerAdapters,
   collectApprovedSource,
 } from "@bmw-knowledge/collection";
 import { policyFromConfiguration } from "@bmw-knowledge/collection/policy";
@@ -15,6 +14,8 @@ import { devCli as cli, invokeDevFunction as invoke, loadLocalEnvironment, perso
 type Configuration = FunctionReturnType<typeof internal.collection.getConfiguration>;
 type Claim = FunctionReturnType<typeof internal.collection.claimJob>;
 type Status = FunctionReturnType<typeof internal.collection.getStatus>;
+type AcquisitionOutcome = FunctionReturnType<typeof internal.acquisition.run>;
+type WorkerRuntime = "developer" | "convex";
 
 loadLocalEnvironment();
 
@@ -25,11 +26,14 @@ const help = `Maintainer collection commands (personal Convex dev deployment onl
     [--relevance <note>] [--series E30 --series E46] [--reacquire]
   pnpm collection status [--job <job-id>] [--limit <1-100>]
   pnpm collection retry --job <job-id>
-  pnpm collection worker --job <job-id>
-  pnpm collection doctor
+  pnpm collection runtime set <developer|convex>
+  pnpm collection worker --job <job-id> [--runtime developer|convex]
+  pnpm collection doctor [--runtime developer|convex]
 
-The one-shot worker needs private-network access to MinIO and dedicated local
-S3 credentials plus a corpus-scoped GitHub token. It retains staged objects.
+Approved jobs run through a Convex Action when the maintainer selects convex
+execution. Developer execution uses the same collection implementation from a
+privately connected host. Both require dedicated S3 and corpus credentials.
+The Convex doctor checks only MinIO health, not authenticated object access.
 `;
 
 function fail(message: string): never {
@@ -42,38 +46,26 @@ function required(name: string): string {
   return value;
 }
 
-function adapters(configuration: Configuration) {
-  const accessKeyId = required("S3_ACCESS_KEY_ID");
-  const bucket = required("S3_BUCKET");
-  if (["workflow-dev", "minioadmin"].includes(accessKeyId) || bucket.startsWith("wfe-")) {
-    fail("Use a dedicated BMW bucket and restricted application identity. Shared workflow/root credentials are excluded.");
-  }
-  const pathStyle = process.env.S3_FORCE_PATH_STYLE ?? "true";
-  if (pathStyle !== "true" && pathStyle !== "false") fail("S3_FORCE_PATH_STYLE must be true or false.");
-  for (const [name, expected] of Object.entries({
-    CORPUS_GITHUB_OWNER: configuration.corpus.owner,
-    CORPUS_GITHUB_REPO: configuration.corpus.repo,
-    CORPUS_GITHUB_BRANCH: configuration.corpus.branch,
-  })) {
-    if (process.env[name] && process.env[name] !== expected) fail(`${name} disagrees with the Convex corpus target.`);
-  }
-  return {
-    staging: new S3Staging({
-      endpoint: required("S3_ENDPOINT"),
-      bucket,
-      region: process.env.S3_REGION ?? "us-east-1",
-      accessKeyId,
-      secretAccessKey: required("S3_SECRET_ACCESS_KEY"),
-      forcePathStyle: pathStyle === "true",
-    }),
-    publisher: new GitHubPublisher({ ...configuration.corpus, token: required("CORPUS_GITHUB_TOKEN") }),
-  };
+function runtime(value: string): WorkerRuntime {
+  if (value !== "developer" && value !== "convex") fail("The worker runtime must be developer or convex.");
+  return value;
 }
 
-async function worker(jobId: string): Promise<unknown> {
+async function worker(jobId: string, selectedRuntime?: WorkerRuntime): Promise<unknown> {
   const configuration = await invoke<Configuration>("collection:getConfiguration", {});
+  if (selectedRuntime !== undefined && selectedRuntime !== configuration.workerMode) {
+    fail("The requested runtime disagrees with the maintainer execution setting. Inspect collection config before running work.");
+  }
+  if (configuration.workerMode === "convex") {
+    const execution = await invoke<AcquisitionOutcome>("acquisition:run", { jobId }, true, 9 * 60_000);
+    if (execution.status === "failed") {
+      throw new CollectionError(execution.errorCode ?? "WORKER_FAILED", "The Convex collection action failed. Inspect collection status before retrying.");
+    }
+    if (execution.status === "disabled") fail("Convex execution is disabled. Inspect collection config before running work.");
+    return { execution, collection: await invoke<Status>("collection:getStatus", { jobId }) };
+  }
   // Missing local settings fail before claiming work.
-  const dependencies = adapters(configuration);
+  const dependencies = createWorkerAdapters(process.env, configuration.corpus);
   const claimed = await invoke<Claim>("collection:claimJob", { jobId }, true);
   if (!claimed) return { jobId, claimed: false, status: await invoke<Status>("collection:getStatus", { jobId }) };
   const { request, attempt } = claimed;
@@ -102,9 +94,12 @@ async function worker(jobId: string): Promise<unknown> {
   }
 }
 
-async function doctor(): Promise<unknown> {
+async function doctor(selectedRuntime?: WorkerRuntime): Promise<unknown> {
   const configuration = await invoke<Configuration>("collection:getConfiguration", {});
-  const { staging } = adapters(configuration);
+  if ((selectedRuntime ?? configuration.workerMode) === "convex") {
+    return { deployment: target(), ...(await invoke<Record<string, unknown>>("acquisition:probeMinio", {})), minioAuthenticatedAccess: false };
+  }
+  const { staging } = createWorkerAdapters(process.env, configuration.corpus);
   // A missing probe key proves authenticated object reads without creating an object.
   await staging.load("connectivity-probe");
   const { owner, repo, branch } = configuration.corpus;
@@ -145,6 +140,7 @@ async function main(): Promise<void> {
       reacquire: { type: "boolean" },
       job: { type: "string" },
       limit: { type: "string" },
+      runtime: { type: "string" },
     },
   });
   const command = positionals[0];
@@ -197,12 +193,16 @@ async function main(): Promise<void> {
       if (!values.job) fail("Retry requires --job.");
       result = await invoke("collection:retryJob", { jobId: values.job }, true);
       break;
+    case "runtime":
+      if (positionals[1] !== "set" || !positionals[2] || positionals.length !== 3) fail("Use runtime set developer or runtime set convex.");
+      result = await cli(["env", "set", "COLLECTION_EXECUTION_MODE", runtime(positionals[2])], true);
+      break;
     case "worker":
       if (!values.job) fail("Worker requires --job.");
-      result = await worker(values.job);
+      result = await worker(values.job, values.runtime === undefined ? undefined : runtime(values.runtime));
       break;
     case "doctor":
-      result = await doctor();
+      result = await doctor(values.runtime === undefined ? undefined : runtime(values.runtime));
       break;
     default:
       fail(`Unknown command ${command}. Use pnpm collection --help.`);
