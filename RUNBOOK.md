@@ -766,3 +766,12 @@ The acquisition Action is implemented and deployed for development. A completed
 real capture through that Action remains pending until its runtime can reach
 MinIO and has dedicated credentials, a corpus publisher token, and an approved
 source. Authenticated object access was not exercised by the health probe.
+
+Implementation commit `859254a54abb2f02e133e548bd960a440b0a9671` is pushed
+to the existing draft software PR. Its exact-head hosted Check runs
+[36428802341](https://github.com/alexcatdad/bmw-knowledge/actions/runs/36428802341)
+and [36428794372](https://github.com/alexcatdad/bmw-knowledge/actions/runs/36428794372)
+completed successfully. Hosted Node 24 passed all 220 tests, frozen dependency
+installation, lockfile cleanliness, and native normalization replay. The clean
+local and hosted fixture hashes match the values recorded above. The corpus
+checkout and its pinned processor caller remain unchanged.
