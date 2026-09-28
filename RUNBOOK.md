@@ -135,6 +135,16 @@ This establishes hosted native acquisition/staging against a plumbing fixture.
 Real BMW-source publication, corpus normalization/callback, OAuth, manual report
 handoff and scheduled account acceptance remain unverified.
 
+Native storage implementation commit
+`4c63e7c6920df5bcc464869b1e411ae499a3dd70` is pushed to the existing
+[draft software PR](https://github.com/alexcatdad/bmw-knowledge/pull/1).
+Hosted Check runs [36455469392](https://github.com/alexcatdad/bmw-knowledge/actions/runs/36455469392)
+and [36455464987](https://github.com/alexcatdad/bmw-knowledge/actions/runs/36455464987)
+both passed at that exact commit. Hosted Node 24 ran 243 tests, frozen pnpm
+installation and clean-Git normalization replay; its input/output hashes match
+the local replay. The corpus checkout and its pinned normalization caller remain
+unchanged. All delegated implementation and review work is complete.
+
 ## Initial PRD review scope
 
 The user requested a review of the PRD. Its implementation handoff is document
