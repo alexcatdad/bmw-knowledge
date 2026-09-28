@@ -775,3 +775,18 @@ completed successfully. Hosted Node 24 passed all 220 tests, frozen dependency
 installation, lockfile cleanliness, and native normalization replay. The clean
 local and hosted fixture hashes match the values recorded above. The corpus
 checkout and its pinned processor caller remain unchanged.
+
+Acceptance recheck on 2026-09-28 at 13:34 UTC made no implementation or live
+acceptance progress. Deployment and local configuration still lack the dedicated
+worker/publisher access; source approvals and live jobs are empty. Research auth
+reports ChatGPT OAuth and developer bearer access disabled. The available in-app
+browser is signed out, and native account inspection was unavailable while the
+Mac was locked. The temporary browser tab was closed without an account change.
+
+Current [scheduled-task guidance](https://learn.chatgpt.com/docs/automations)
+describes connected tools and plugins for eligible scheduled chats. It does not
+prove availability or successful writes on this account. Follow the
+[connection test](https://developers.openai.com/plugins/deploy/connect-chatgpt)
+after the existing provider and account are available; no recurring task was
+created. D-032 records the full PRD acceptance gaps and the first consecutive
+blocked audit. Keep the full goal active; no new failure was found in the code.
