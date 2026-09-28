@@ -418,3 +418,14 @@ public repository. Commit source, lockfile, generated Convex types/guidance,
 runbook, and audit decisions, then push the branch and create a draft PR using
 `gh pr create --draft --body-file <reviewed-body-file>`. Attach any created PR to
 the chat. Do not merge or claim the complete MVP from fixture-only checks.
+
+The existing GitHub SSH key authenticates as `alexcatdad`; this checkout uses
+`git@github.com:alexcatdad/bmw-knowledge.git` as its push URL and HTTPS for fetches.
+The current `gh` OAuth token can create the PR but lacks workflow-file write
+scope. The existing SSH credential published the branch without changing that
+token or global credential configuration.
+
+The implementation is open for review in draft PR
+<https://github.com/alexcatdad/bmw-knowledge/pull/1>. Dedicated MinIO access and
+live corpus collection remain pending; the corpus repository has not been
+modified by the local tests or the developer control fixture.
