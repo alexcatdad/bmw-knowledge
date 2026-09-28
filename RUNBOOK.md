@@ -669,3 +669,14 @@ These labelled records prove developer transport and application behavior.
 Dedicated authenticated MinIO access, corpus publication/processing with a real
 approved source, the owner's OAuth connection, and actual scheduling remain
 unverified. No shared infrastructure or recurring task was changed.
+
+Research implementation commit `59431ec3b009a439da1c0458b48f38ecab850e9b`
+is pushed to the existing draft [software PR](https://github.com/alexcatdad/bmw-knowledge/pull/1).
+Hosted Check runs [36425452128](https://github.com/alexcatdad/bmw-knowledge/actions/runs/36425452128)
+and [36425443009](https://github.com/alexcatdad/bmw-knowledge/actions/runs/36425443009)
+completed successfully at that exact commit. Node 24 ran all 176 tests and the
+native normalization smoke; its input/output hashes match the local check.
+The PR title and body now describe collection, normalization, and the research
+interface together. The separate corpus caller remains pinned to its previously
+verified normalization commit; research changes do not change that processor.
+Both PRs remain drafts and main branches are unchanged.
