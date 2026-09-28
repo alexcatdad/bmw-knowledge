@@ -1,8 +1,6 @@
-import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { parseArgs, promisify } from "node:util";
+import { resolve } from "node:path";
+import { parseArgs } from "node:util";
 import type { FunctionReturnType } from "convex/server";
 import type { internal } from "../convex/_generated/api.js";
 import {
@@ -12,19 +10,13 @@ import {
   collectApprovedSource,
 } from "@bmw-knowledge/collection";
 import { policyFromConfiguration } from "@bmw-knowledge/collection/policy";
-import { parseConvexOutput } from "./cli-output.js";
+import { devCli as cli, invokeDevFunction as invoke, loadLocalEnvironment, personalDevTarget as target } from "./maintainer-cli.js";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const execute = promisify(execFile);
 type Configuration = FunctionReturnType<typeof internal.collection.getConfiguration>;
 type Claim = FunctionReturnType<typeof internal.collection.claimJob>;
 type Status = FunctionReturnType<typeof internal.collection.getStatus>;
 
-try {
-  process.loadEnvFile(resolve(root, ".env.local"));
-} catch (error) {
-  if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
-}
+loadLocalEnvironment();
 
 const help = `Maintainer collection commands (personal Convex dev deployment only):
   pnpm collection config
@@ -42,45 +34,6 @@ S3 credentials plus a corpus-scoped GitHub token. It retains staged objects.
 
 function fail(message: string): never {
   throw new CollectionError("DEVELOPER_CONFIGURATION", message);
-}
-
-function target(): string {
-  if (process.env.CONVEX_DEPLOY_KEY || process.env.CONVEX_SELF_HOSTED_ADMIN_KEY) {
-    fail("This developer command uses the signed-in CLI. Remove deployment-key overrides before selecting personal dev.");
-  }
-  const deployment = process.env.CONVEX_DEPLOYMENT?.match(/^dev:([a-z0-9-]+)$/)?.[1];
-  if (!deployment) fail("CONVEX_DEPLOYMENT must select an existing personal dev deployment in .env.local.");
-  return deployment;
-}
-
-async function cli(args: string[], mutating = false): Promise<string> {
-  const deployment = target();
-  if (mutating) console.error(`target: dev (${deployment}, maintainer developer command)`);
-  const childEnvironment = { ...process.env };
-  for (const key of Object.keys(childEnvironment)) {
-    if (key.startsWith("S3_") || key === "CORPUS_GITHUB_TOKEN" || key === "PROCESSING_CALLBACK_SECRET") delete childEnvironment[key];
-  }
-  try {
-    const result = await execute("pnpm", ["exec", "convex", ...args, "--deployment", deployment], {
-      cwd: root,
-      env: childEnvironment,
-      maxBuffer: 2 * 1024 * 1024,
-      timeout: 120_000,
-    });
-    return result.stdout.trim();
-  } catch {
-    // CLI/provider errors can contain response bodies or credential details.
-    fail(`Convex command ${args[0]} ${args[1] ?? ""} failed. Inspect the selected dev deployment's logs.`);
-  }
-}
-
-async function invoke<T>(name: string, args: Record<string, unknown>, mutating = false): Promise<T> {
-  const output = await cli(["run", name, JSON.stringify(args)], mutating);
-  try {
-    return parseConvexOutput(output) as T;
-  } catch {
-    fail(`Convex function ${name} returned an unexpected CLI result.`);
-  }
 }
 
 function required(name: string): string {

@@ -25,6 +25,7 @@ import { env, internalMutation, internalQuery, type MutationCtx } from "./_gener
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
 import { corpusTarget } from "./corpus";
+import { sourceIndexFields } from "./sourceSearch";
 import {
   captureManifestValidator,
   collectionPolicyValidator,
@@ -41,7 +42,7 @@ const RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const CONFIGURATION_NAMES = [
   "COLLECTION_APPROVALS_JSON", "COLLECTION_MAX_BYTES", "COLLECTION_TIMEOUT_MS",
   "S3_ENDPOINT", "S3_BUCKET", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_FORCE_PATH_STYLE",
-  "CORPUS_GITHUB_OWNER", "CORPUS_GITHUB_REPO", "CORPUS_GITHUB_BRANCH", "CORPUS_GITHUB_TOKEN", "PROCESSING_CALLBACK_SECRET",
+  "CORPUS_GITHUB_OWNER", "CORPUS_GITHUB_REPO", "CORPUS_GITHUB_BRANCH", "CORPUS_GITHUB_TOKEN", "PROCESSING_CALLBACK_SECRET", "RESEARCH_MCP_SECRET", "RESEARCH_SCOPE_JSON",
 ] as const;
 
 function fail(code: string, message: string): never {
@@ -182,10 +183,13 @@ export const submitSource = internalMutation({
     let source = await ctx.db.query("sources").withIndex("by_urlKey", (q) => q.eq("urlKey", urlKey)).unique();
     const wasKnown = source !== null;
     if (!source) {
-      const sourceId = await ctx.db.insert("sources", { urlKey, url: args.url, ...(args.title !== undefined ? { title: args.title } : {}), relevance: args.relevance, series: args.series });
+      const sourceId = await ctx.db.insert("sources", { urlKey, url: args.url, ...(args.title !== undefined ? { title: args.title } : {}), relevance: args.relevance, series: args.series, ...sourceIndexFields(args) });
       source = await ctx.db.get("sources", sourceId);
     }
     if (!source) fail("SOURCE_NOT_FOUND", "The source could not be recorded.");
+    if (source.domain === undefined || source.searchText === undefined || source.searchMetadataVersion !== 1) {
+      await ctx.db.patch("sources", source._id, sourceIndexFields(source));
+    }
     let result: Infer<typeof submissionResultValidator>;
     if (wasKnown && !args.reacquire) {
       result = { sourceId: source._id, jobId: source.latestJobId ?? null, status: "known", reason: "This URL is already recorded. Use an explicit reacquisition or retry to acquire it again." };

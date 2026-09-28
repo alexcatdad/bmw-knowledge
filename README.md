@@ -3,15 +3,15 @@
 Source collection and research tooling for E30 and E46. Published evidence lives
 in the separate [bmw-corpus](https://github.com/alexcatdad/bmw-corpus) repository.
 
-The first development slice provides internal Convex job records and a maintainer
-CLI. A one-shot worker captures approved HTML/text, retains the bytes and capture
+Internal Convex job records and a maintainer CLI support collection. A one-shot
+worker captures approved HTML/text, retains the bytes and capture
 metadata in S3-compatible staging, and verifies the raw artifact and provenance
 manifest at an immutable GitHub commit before recording publication success.
 Retries resume staged captures. Distinct captures may share a SHA-256 artifact.
 
 The selected shared MinIO is private. Run the worker on a machine with a tested
 route to it, using a dedicated bucket and restricted credentials. Convex owns
-job state; this slice has no public research endpoints or background worker.
+job state. Run the one-shot worker explicitly when live credentials are ready.
 
 Use Node.js 24 or newer and the pnpm version pinned in `package.json`:
 
@@ -19,6 +19,7 @@ Use Node.js 24 or newer and the pnpm version pinned in `package.json`:
 pnpm install --frozen-lockfile
 pnpm check
 pnpm collection --help
+pnpm research --help
 ```
 
 Follow [RUNBOOK.md](RUNBOOK.md) to connect an existing personal Convex development
@@ -27,9 +28,9 @@ The [project-owned fixture](fixtures/http-source.html) contains no BMW evidence.
 
 [PRD](docs/PRD.md), [implementation decisions](decisions.jsonl), and
 [scope clarifications](docs/implementation-notes.md) record the product baseline.
-Research MCP and manual Deep Research report saving, normalization, and a tested
-scheduled discovery path define the remaining MVP work. The full MVP has not
-been accepted.
+The full MVP has not been accepted. Live permitted-source collection, the actual
+corpus workflow, ChatGPT account connection, and scheduled discovery require
+separate demonstrations.
 
 The shared normalization processor converts captured UTF-8 HTML to Markdown or
 retains plain text as text. It verifies input hashes, preserves capture bytes,
@@ -42,3 +43,20 @@ and output at an immutable corpus commit before updating Convex. This endpoint
 is disabled when its secret is absent. The corpus workflow and real-source
 acceptance still require live configuration; local fixtures prove only the
 implementation behavior.
+
+The restricted research interface records runs and discovery batches, returns
+compact context and indexed known-source lookup, and stores cited manual reports.
+Exact retries reuse their records; reports remain distinct from captured evidence
+and do not acquire their citations. See the versioned
+[research instruction](research/discovery-v1.md).
+
+One stateless Streamable HTTP MCP endpoint runs on Convex at `/mcp`. It denies
+access without a dedicated strong developer credential and exposes only eight
+research operations. The developer import CLI uses the same application
+contracts. OAuth provider selection and the owner's actual ChatGPT connection
+are pending; a developer SDK transport test does not establish that connection.
+
+The personal development endpoint has passed an official SDK test of all eight
+tools using labelled references and a cited synthetic report. Concurrent retries,
+conflicts, legacy source lookup, and closed-run replay were verified. Temporary
+test access was removed afterward; no source bytes were acquired or published.

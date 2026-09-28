@@ -520,3 +520,152 @@ Authenticated invalid or unproved results do not become processing success.
 The report sender has a 60-second deadline for the four individually bounded
 10-second proof reads plus database work; errors are fixed codes without SDK
 bodies, secrets, or source text.
+
+## Research interface development
+
+Continue on the existing software review branch. The first research interface
+uses internal Convex functions and one remote `/mcp` HTTP handler. Do not add a
+second local MCP host, a model-backed agent, or a generic administrative tool.
+The versioned instruction is `research/discovery-v1.md`.
+
+Before changing backend code, read `convex/_generated/ai/guidelines.md` and the
+existing schema. Extend populated source metadata with optional fields; preserve
+CaptureManifest v1, its source snapshot, and pinned normalization behavior.
+Validate with native Convex typechecking, root `pnpm check`, and official SDK
+client tests against the web-standard handler. Announce the identified personal
+dev deployment before any codegen, push, or environment mutation.
+
+Research writes accept fixed schemas and application operations only:
+begin/finish a run, submit a bounded discovery batch, and save a cited manual
+report. An exact retry returns the original record. A changed payload using the
+same key fails. All batch items and queued collection jobs commit together.
+Source acquisition still requires the maintainer's separate policy; research
+clients cannot approve redistribution or request reacquisition.
+
+Use compact briefs and bounded source lookup/status results. Retain each
+discovery's run and referrer metadata. Saved report Markdown and citations are
+stored as `manual_research_report` / `unverified_research`, separate from capture
+and corpus publication records. Reports do not acquire their cited sources or
+create jobs. Scheduled discovery cannot submit interpreted manual reports.
+
+For a developer import, use the fixed tool-name command with a JSON input file;
+the same shared input contract is enforced by MCP and backend functions:
+
+```sh
+pnpm research config
+pnpm research get_research_brief
+pnpm research begin_research_run --input /absolute/path/to/run.json
+pnpm research search_sources --input /absolute/path/to/lookup.json
+pnpm research submit_discoveries --input /absolute/path/to/batch.json
+pnpm research get_collection_status --input /absolute/path/to/status.json
+pnpm research save_research_report --input /absolute/path/to/report.json
+pnpm research get_research_report --input /absolute/path/to/report-id.json
+pnpm research finish_research_run --input /absolute/path/to/outcome.json
+```
+
+`research/example-discovery.json` is a synthetic reference-only example. Replace
+its run ID with the actual result from `begin_research_run`; never treat the
+example URL as BMW evidence. These commands use existing native CLI login,
+reject production/deployment-key overrides, and exclude worker, processing,
+and research credentials from the CLI child environment.
+
+The developer MCP credential is a dedicated random base64url secret. Keep it
+out of Git, command arguments, and logs. The endpoint denies access if its
+credential is absent or weak. No source approval, S3, GitHub, or processing
+credential grants research-client access. Browser Origin requests require an
+explicit host allowlist; do not open CORS just to test a server-side client.
+
+For a transport acceptance test, use a short-lived dedicated secret on the
+identified personal development deployment, refuse to replace an existing
+credential, and remove the test secret in a `finally` cleanup. Use the official
+SDK client to initialize, list all intended tools, read a brief, submit/replay
+a labelled synthetic reference, save/read a labelled report, and finish the
+run. Verify no capture/publication claims or acquisition jobs were invented.
+Retain the run/report IDs as explicitly labelled integration test records.
+
+ChatGPT's account connection remains a separate acceptance gate. Its official
+authentication guide expects OAuth 2.1, resource metadata, PKCE, token audience
+and scope verification, and a selected authorization provider. The single-owner
+developer bearer test establishes SDK/Convex runtime compatibility only. Select
+an existing provider or review one before adding an account, installing its
+configuration, or claiming ChatGPT integration.
+
+Current official connection procedure and authentication requirements:
+
+- [Connect and test](https://developers.openai.com/plugins/deploy/connect-chatgpt)
+- [MCP authentication](https://developers.openai.com/plugins/build/auth)
+
+After OAuth is configured, connect the real endpoint in the owner's ChatGPT
+developer mode and demonstrate one read and one authorized write. Manually
+requested Deep Research produces a report; use a subsequent supported write
+step to save it, then read it back. Preserve the actual tool results and any
+client confirmation requirement. Do not describe this handoff as automatic or
+create a recurring schedule from this runbook.
+
+MinIO recovery recheck on 2026-09-28: the existing
+`http://minio.home.lab:9000/minio/health/live` returned HTTP 200 from the developer
+host. Added only the user-supplied endpoint, `us-east-1`, and path-style addressing
+to the ignored local worker configuration; no existing values were overwritten.
+Its protected backup is `/private/tmp/bmw-minio-local-env-4n5n4xoy`.
+The dedicated bucket/credentials and corpus publisher credential remain absent.
+No shared MinIO configuration, bucket, or identity was changed. This health
+response does not demonstrate authenticated S3 object access or a cloud CI route.
+
+Research scope lives in the optional deployment setting `RESEARCH_SCOPE_JSON`.
+The default is both supported series, empty focus/body-style hints, and English
+operation. A reviewed scope file can contain, for example:
+
+```json
+{"series":["E30"],"focus":["electrical documentation"],"bodyStyles":["sedan"],"operationalLanguage":"en"}
+```
+
+After announcing the identified personal dev target, set that nonsecret JSON via
+stdin and verify `pnpm research config` / `get_research_brief`. Existing runs
+retain the brief and scope they began with. A new run receives the current scope;
+submissions must remain within its series. Invalid scope configuration fails
+visibly. This initial capability supports E30 and E46; broader acquisition types
+remain an expansion chosen from actual sample needs.
+
+To exercise the real HTTP endpoint with an already configured dedicated
+development credential in scoped local environment:
+
+```sh
+pnpm research-smoke
+```
+
+This command checks concurrent run/batch/report replay, changed-payload conflicts,
+URL/domain/topic lookup including legacy metadata, exact saved cited Markdown, closed-run write rejection,
+and current collection status through the official SDK client. It refuses any
+deployment with acquisition approvals before creating persistent fixture records.
+Its output contains fixture record IDs and capability checks, never the credential.
+It does not set or remove credentials, create captures, or verify ChatGPT OAuth.
+Remove any temporary test credential from the identified deployment after the
+test, verify the endpoint returns 401 again, and retain the IDs in this audit.
+
+Research verification on 2026-09-28:
+
+- `pnpm check`: 176 tests across 16 files plus root TypeScript passed. Native
+  Convex TypeScript and frozen pnpm install also passed.
+- Native push with typechecking completed on personal dev `modest-beagle-916`.
+  Function-spec contains 22 internal operations and four HTTP route entries:
+  POST `/processing/result` and POST/GET/DELETE `/mcp`, using two handlers.
+- Real SDK 1.30.1 initialized the remote endpoint, listed all eight tools, and
+  verified concurrent/exact replay, fixed conflict codes, legacy full-text
+  lookup, cited report save/read, collection status, and closed-run rejection.
+  The retained successful fixture is run `kd7dthy1cygq3v1bqr6vndyq9h8f8086`,
+  batch `k57f6ytdw4t2e90kgnkhw81jcs8f86r3`, source
+  `jh745257g39zzjdxtcp6qrv3rh8f9ryh`, report `k97edcnwcfw22hzqqevnnhjrf98f97pm`.
+- Initial smoke attempts exposed cached SDK success-schema validation of error
+  `structuredContent`. Errors now omit that field and carry only fixed JSON
+  `error.code` / `error.message` in text with `isError: true`; successful outputs
+  keep their declared schemas. The SDK regression lists tools before exercising
+  a conflict. Partial fixture runs `kd70533hecj9ys7jk6vndy1sy98f90af` and
+  `kd7arn288w6jc6t88xdnv41yrs8f9sdg` were finished with that explicit outcome.
+- Temporary research access was removed in `finally`. Configuration reports no
+  developer credential and no ChatGPT OAuth; unauthenticated `/mcp` and processing
+  callback requests return 401. The live job list remains empty.
+
+These labelled records prove developer transport and application behavior.
+Dedicated authenticated MinIO access, corpus publication/processing with a real
+approved source, the owner's OAuth connection, and actual scheduling remain
+unverified. No shared infrastructure or recurring task was changed.

@@ -46,3 +46,21 @@ receipt, and output bytes at immutable corpus commits. The dedicated machine
 secret is distinct from research, GitHub, and MinIO credentials; the endpoint is
 disabled without it. Fixture tests and CI smoke do not prove real-source capture,
 live corpus transformation, interactive MCP access, or scheduled discovery.
+
+## Research interface
+
+Run history, discovery provenance, exact batch replay, compact briefs, and known
+source lookup use internal Convex operations. Optional source metadata indexes
+preserve existing records and capture snapshots. Report records store cited
+Markdown from user-requested manual research as `unverified_research`; they do
+not invoke a model, acquire citations, or imply a corpus publication.
+
+The single remote MCP path uses the official SDK's stateless web-standard
+transport inside a Convex HTTP Action. A dedicated developer credential protects
+all requests; it is separate from acquisition and processing secrets. The native
+developer import command routes only the same fixed research operations.
+
+ChatGPT's documented authenticated connection requires an OAuth provider and a
+real account-specific read/write demonstration. Keep this integration pending
+while proving the SDK transport on the actual personal Convex development
+deployment. No recurring task is created by implementing this interface.
