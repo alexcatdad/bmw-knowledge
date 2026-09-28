@@ -18,5 +18,6 @@ export default defineApp({
     CORPUS_GITHUB_REPO: v.optional(v.string()),
     CORPUS_GITHUB_BRANCH: v.optional(v.string()),
     CORPUS_GITHUB_TOKEN: v.optional(v.string()),
+    PROCESSING_CALLBACK_SECRET: v.optional(v.string()),
   },
 });

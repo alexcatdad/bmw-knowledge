@@ -6,6 +6,9 @@ import {
   jobPhaseValidator,
   jobStatusValidator,
   publicationValidator,
+  processingFailureCodeValidator,
+  processingManifestValidator,
+  processingPublicationValidator,
   seriesValidator,
   sourceApprovalValidator,
   sourceMetadataValidator,
@@ -64,6 +67,30 @@ export default defineSchema({
     sha256: v.string(),
     byteLength: v.number(),
     path: v.string(),
-    processingStatus: v.literal("pending"),
   }).index("by_sha256", ["sha256"]),
+
+  processingResults: defineTable({
+    captureId: v.id("captures"),
+    processorRevision: v.string(),
+    inputSha256: v.string(),
+    status: v.union(v.literal("failed"), v.literal("succeeded")),
+    manifest: v.optional(processingManifestValidator),
+    publication: v.optional(processingPublicationValidator),
+    verifiedAt: v.optional(v.number()),
+    error: v.optional(v.object({ code: processingFailureCodeValidator, message: v.string() })),
+    updatedAt: v.number(),
+  })
+    .index("by_captureId_and_processorRevision", ["captureId", "processorRevision"])
+    .index("by_captureId", ["captureId"]),
+
+  processingEvents: defineTable({
+    resultId: v.id("processingResults"),
+    eventKey: v.string(),
+    status: v.union(v.literal("failed"), v.literal("succeeded")),
+    code: v.optional(processingFailureCodeValidator),
+    publication: v.optional(processingPublicationValidator),
+    ignored: v.optional(v.boolean()),
+  })
+    .index("by_resultId_and_eventKey", ["resultId", "eventKey"])
+    .index("by_resultId", ["resultId"]),
 });

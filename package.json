@@ -14,12 +14,16 @@
     "dev": "convex dev",
     "convex": "convex",
     "collection": "tsx scripts/collection.ts",
+    "normalize": "tsx scripts/normalize.ts",
+    "normalization-report": "tsx scripts/normalization-report.ts",
+    "normalization-smoke": "tsx scripts/normalization-smoke.ts",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm test"
   },
   "dependencies": {
     "@bmw-knowledge/collection": "workspace:*",
+    "@bmw-knowledge/normalization": "workspace:*",
     "convex": "^1.46.0"
   },
   "devDependencies": {

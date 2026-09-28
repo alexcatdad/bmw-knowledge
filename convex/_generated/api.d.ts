@@ -9,6 +9,11 @@
  */
 
 import type * as collection from "../collection.js";
+import type * as corpus from "../corpus.js";
+import type * as digests from "../digests.js";
+import type * as http from "../http.js";
+import type * as processing from "../processing.js";
+import type * as processingHttp from "../processingHttp.js";
 import type * as validators from "../validators.js";
 
 import type {
@@ -19,6 +24,11 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   collection: typeof collection;
+  corpus: typeof corpus;
+  digests: typeof digests;
+  http: typeof http;
+  processing: typeof processing;
+  processingHttp: typeof processingHttp;
   validators: typeof validators;
 }>;
 

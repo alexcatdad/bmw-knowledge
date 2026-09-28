@@ -1,0 +1,21 @@
+name: Normalize captures
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'captures/**'
+      - 'raw/sha256/**'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    uses: alexcatdad/bmw-knowledge/.github/workflows/normalize-corpus.yml@PROCESSOR_COMMIT_SHA
+    with:
+      processor_revision: PROCESSOR_COMMIT_SHA
+      callback_url: ${{ vars.PROCESSING_CALLBACK_URL }}
+    secrets:
+      processing_callback_secret: ${{ secrets.PROCESSING_CALLBACK_SECRET }}

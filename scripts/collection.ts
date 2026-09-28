@@ -58,7 +58,7 @@ async function cli(args: string[], mutating = false): Promise<string> {
   if (mutating) console.error(`target: dev (${deployment}, maintainer developer command)`);
   const childEnvironment = { ...process.env };
   for (const key of Object.keys(childEnvironment)) {
-    if (key.startsWith("S3_") || key === "CORPUS_GITHUB_TOKEN") delete childEnvironment[key];
+    if (key.startsWith("S3_") || key === "CORPUS_GITHUB_TOKEN" || key === "PROCESSING_CALLBACK_SECRET") delete childEnvironment[key];
   }
   try {
     const result = await execute("pnpm", ["exec", "convex", ...args, "--deployment", deployment], {

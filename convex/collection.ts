@@ -24,6 +24,7 @@ import { ConvexError, v, type Infer } from "convex/values";
 import { env, internalMutation, internalQuery, type MutationCtx } from "./_generated/server";
 import type { Doc, Id } from "./_generated/dataModel";
 import schema from "./schema";
+import { corpusTarget } from "./corpus";
 import {
   captureManifestValidator,
   collectionPolicyValidator,
@@ -40,7 +41,7 @@ const RECOVERY_AFTER_MS = 15 * 60 * 1000;
 const CONFIGURATION_NAMES = [
   "COLLECTION_APPROVALS_JSON", "COLLECTION_MAX_BYTES", "COLLECTION_TIMEOUT_MS",
   "S3_ENDPOINT", "S3_BUCKET", "S3_REGION", "S3_ACCESS_KEY_ID", "S3_SECRET_ACCESS_KEY", "S3_FORCE_PATH_STYLE",
-  "CORPUS_GITHUB_OWNER", "CORPUS_GITHUB_REPO", "CORPUS_GITHUB_BRANCH", "CORPUS_GITHUB_TOKEN",
+  "CORPUS_GITHUB_OWNER", "CORPUS_GITHUB_REPO", "CORPUS_GITHUB_BRANCH", "CORPUS_GITHUB_TOKEN", "PROCESSING_CALLBACK_SECRET",
 ] as const;
 
 function fail(code: string, message: string): never {
@@ -61,19 +62,6 @@ function integer(value: number, name: string, minimum: number, maximum: number):
 
 function policy() {
   return policyFromConfiguration(env.COLLECTION_APPROVALS_JSON, env.COLLECTION_MAX_BYTES, env.COLLECTION_TIMEOUT_MS);
-}
-
-function corpusTarget() {
-  const owner = env.CORPUS_GITHUB_OWNER ?? "alexcatdad";
-  const repo = env.CORPUS_GITHUB_REPO ?? "bmw-corpus";
-  const branch = env.CORPUS_GITHUB_BRANCH ?? "main";
-  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(owner) || !/^[A-Za-z0-9_.-]{1,100}$/.test(repo) || repo === "." || repo === "..") {
-    fail("INVALID_CORPUS_CONFIGURATION", "The corpus owner and repository must be valid GitHub names.");
-  }
-  if (branch.length === 0 || branch.length > 200 || !/^[A-Za-z0-9_/-]+$/.test(branch) || branch.startsWith("/") || branch.endsWith("/") || branch.includes("//")) {
-    fail("INVALID_CORPUS_CONFIGURATION", "The corpus branch must be an explicit bounded branch name.");
-  }
-  return { owner, repo, branch };
 }
 
 function canonicalJson(value: unknown): string {
@@ -241,7 +229,7 @@ export const listJobs = internalQuery({
 
 export const getStatus = internalQuery({
   args: { jobId: v.id("jobs") },
-  returns: v.union(v.null(), v.object({ job: schema.doc("jobs"), source: schema.doc("sources"), capture: v.union(schema.doc("captures"), v.null()), artifact: v.union(schema.doc("artifacts"), v.null()) })),
+  returns: v.union(v.null(), v.object({ job: schema.doc("jobs"), source: schema.doc("sources"), capture: v.union(schema.doc("captures"), v.null()), artifact: v.union(schema.doc("artifacts"), v.null()), processing: v.array(schema.doc("processingResults")) })),
   handler: async (ctx, args) => {
     const job = await ctx.db.get("jobs", args.jobId);
     if (!job) return null;
@@ -249,7 +237,8 @@ export const getStatus = internalQuery({
     if (!source) fail("SOURCE_NOT_FOUND", "The job source does not exist.");
     const capture = job.captureId ? await ctx.db.get("captures", job.captureId) : null;
     const artifact = capture?.artifactId ? await ctx.db.get("artifacts", capture.artifactId) : null;
-    return { job, source, capture, artifact };
+    const processing = capture ? await ctx.db.query("processingResults").withIndex("by_captureId", (q) => q.eq("captureId", capture._id)).order("desc").take(10) : [];
+    return { job, source, capture, artifact, processing };
   },
 });
 
@@ -309,7 +298,7 @@ export const recordStagedCapture = internalMutation({
     if (priorArtifact && (priorArtifact.byteLength !== args.manifest.artifact.byteLength || priorArtifact.path !== args.manifest.artifact.path)) {
       fail("ARTIFACT_IDENTITY_MISMATCH", "The recorded content hash has different artifact metadata.");
     }
-    const artifactId = priorArtifact?._id ?? await ctx.db.insert("artifacts", { sha256: args.manifest.artifact.sha256, byteLength: args.manifest.artifact.byteLength, path: args.manifest.artifact.path, processingStatus: "pending" });
+    const artifactId = priorArtifact?._id ?? await ctx.db.insert("artifacts", { sha256: args.manifest.artifact.sha256, byteLength: args.manifest.artifact.byteLength, path: args.manifest.artifact.path });
     await ctx.db.patch("captures", capture._id, { manifest: args.manifest, artifactId, status: "staged" });
     await ctx.db.patch("jobs", job._id, { phase: "staged" });
     return null;

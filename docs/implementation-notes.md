@@ -30,3 +30,19 @@ commit is kept in Convex, outside the manifest whose bytes it identifies.
 Publication and processing have separate status. This slice neither deletes
 staged objects nor declares normalization complete. An internal CLI accessible
 to the maintainer is not the future authenticated research MCP.
+
+## Normalization development
+
+The shared UTF-8 HTML/text processor and narrow processing callback are developed
+against labelled fixtures while live staging access is pending. Outputs and
+receipts are keyed by capture and exact processor revision: source context can
+change resolved links even when raw bytes have the same hash. The raw artifact
+therefore has no single normalization status. Convex tracks contextual outcomes
+and deduplicated failure events without changing acquisition or retention state.
+
+The prepared corpus workflow calls the same pinned CLI used locally and excludes
+derived-only changes from its trigger. Callback success requires actual input,
+receipt, and output bytes at immutable corpus commits. The dedicated machine
+secret is distinct from research, GitHub, and MinIO credentials; the endpoint is
+disabled without it. Fixture tests and CI smoke do not prove real-source capture,
+live corpus transformation, interactive MCP access, or scheduled discovery.

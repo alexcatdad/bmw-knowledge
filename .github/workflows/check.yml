@@ -27,4 +27,5 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - run: pnpm normalization-smoke
       - run: git diff --exit-code -- pnpm-lock.yaml

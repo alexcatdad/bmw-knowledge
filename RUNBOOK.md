@@ -406,8 +406,9 @@ hash when available. Publication verifies both artifact and manifest at the
 recorded immutable commit; conflicting existing files are never overwritten.
 Stale worker attempts cannot complete a newer retry. Running-job recovery is
 manual and requires at least fifteen minutes since the claim; stop the original
-worker before recovering a stuck job. S3 retention stays `retain` and
-artifact processing stays `pending` until a later transformation proves success.
+worker before recovering a stuck job. S3 retention stays `retain`. Processing
+results belong to each capture and processor revision; they are recorded
+separately after transformation and immutable file verification.
 
 ### Publish implementation for review
 
@@ -429,3 +430,93 @@ The implementation is open for review in draft PR
 <https://github.com/alexcatdad/bmw-knowledge/pull/1>. Dedicated MinIO access and
 live corpus collection remain pending; the corpus repository has not been
 modified by the local tests or the developer control fixture.
+
+### Develop deterministic normalization
+
+The next development step uses the project-owned fixture while dedicated live
+staging access is pending. Implement one shared `packages/normalization`
+processor and `pnpm normalize`, then run the root typecheck/test gate. Treat
+captured HTML as data: never execute scripts, fetch links, render a browser, or
+extract automotive facts. Preserve input bytes and verify their declared hash.
+
+The processor is pinned to an immutable software commit. Derived paths contain
+the capture identity and processor revision; receipts record input/output hashes,
+input corpus revision, processor version, fixture label, and explicit losses.
+Replays must reuse identical derived bytes and the original receipt. Conflicting
+files fail instead of being overwritten. Processing status belongs to each
+capture/context and remains separate from acquisition/publication success.
+
+Prepare a corpus workflow around the same CLI. Its push trigger covers captured
+inputs only, excluding derived-only changes. Publish the workflow as reviewable
+code before enabling it. The narrow Convex result callback must be disabled when
+its dedicated machine secret is absent and must prove output files at an immutable
+corpus revision before declaring success. Local fixture checks do not satisfy the
+real-source or live Actions acceptance gates.
+
+Validate development with `pnpm check` and, when available,
+`actionlint .github/workflows/check.yml .github/workflows/normalize-corpus.yml`.
+After committing the processor, run `pnpm normalization-smoke` from a clean
+checkout. CI runs the same smoke on Node 24. It creates and removes a temporary
+Git repository containing labelled synthetic inputs, calls the native CLI twice,
+and checks fixed expected Markdown bytes, hashes, replay, and unchanged input.
+It never publishes those synthetic captures or calls the live callback.
+
+For an actual committed capture, use a corpus checkout at the input revision and
+a clean software checkout at the declared processor revision:
+
+```sh
+pnpm normalize --corpus /absolute/path/to/bmw-corpus \
+  --capture '<capture-id>' --processor-revision '<40hex-software-commit>' \
+  --input-revision '<40hex-corpus-head>' --summary /private/tmp/new-processing-summary.json
+```
+
+The command reads Git blobs at that corpus commit, not mutable worktree inputs.
+Input files must be regular nonexecutable blobs and manifests must use the shared
+canonical serialization. `--all` processes at most 100 capture manifests;
+explicit `--capture` flags select a smaller batch. Missing or corrupt raw bytes
+produce per-capture failure results when the manifest identifies the input.
+An unidentifiable or noncanonical manifest stops the command visibly.
+Existing derived files must be identical. Source/context-specific receipts retain
+their original input commit when replayed on newer corpus heads.
+
+The reusable workflow is `.github/workflows/normalize-corpus.yml` in this
+repository. Prepare the separate corpus caller from
+`infra/github/corpus-normalize.yml.template`, replacing both
+`PROCESSOR_COMMIT_SHA` placeholders with the tested full software commit. Keep
+it on a review branch until live setup is ready. Only captures/raw pushes to
+`main` trigger it; derived-only commits do not. Manual workflow dispatch provides
+a processing retry. The workflow checks out the pinned tooling, installs the
+frozen lockfile, calls this CLI, commits only derived outputs, and reports them
+after a successful non-force push. Concurrent acquisitions are handled by at
+most three fetch/rebase/push attempts; unresolved conflicts fail visibly.
+
+When enabling processing, generate one dedicated random base64url machine secret
+of at least 32 characters, saved outside Git without a trailing newline. Announce
+the identified personal development target before setting its environment. Use
+stdin/file input rather than putting the secret in command arguments or logs:
+
+```sh
+pnpm exec convex env set PROCESSING_CALLBACK_SECRET \
+  --deployment '<personal-dev-name>' --from-file /private/path/to/processing-secret
+gh secret set PROCESSING_CALLBACK_SECRET --repo alexcatdad/bmw-corpus \
+  < /private/path/to/processing-secret
+gh variable set PROCESSING_CALLBACK_URL --repo alexcatdad/bmw-corpus \
+  --body 'https://<personal-dev-name>.convex.site/processing/result'
+```
+
+The same secret is required only on that deployment and corpus CI. The callback
+is not a research credential and cannot approve sources, submit acquisition jobs,
+or perform deployment administration. The CLI also removes it from its native
+Convex child environment. Inspect processing through
+`pnpm collection status --job '<job-id>'`; the result includes up to ten records
+for that capture. Detailed deduplicated outcome events are available through the
+internal `processing:getResult` maintainer function with an explicit capture and
+processor revision. Failure cannot downgrade a previously verified success.
+
+Success verification reads the exact captured manifest/raw input at the declared
+input commit and the exact receipt/output at the reported result commit. Both
+revisions must be full immutable Git identifiers of the configured public corpus.
+Authenticated invalid or unproved results do not become processing success.
+The report sender has a 60-second deadline for the four individually bounded
+10-second proof reads plus database work; errors are fixed codes without SDK
+bodies, secrets, or source text.

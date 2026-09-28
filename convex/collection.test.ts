@@ -260,7 +260,7 @@ describe("maintainer-controlled collection state", () => {
     await expect(t.mutation(internal.collection.recordStagedCapture, { jobId, attempt: first.attempt, manifest })).rejects.toThrow("current running attempt");
     await t.mutation(internal.collection.recordStagedCapture, { jobId, attempt: second.attempt, manifest });
     await expect(t.mutation(internal.collection.recordStagedCapture, { jobId, attempt: second.attempt, manifest: manifestFor(second, "b".repeat(64)) })).rejects.toThrow("different bytes or provenance");
-    expect(await t.query(internal.collection.getStatus, { jobId })).toMatchObject({ job: { phase: "staged", status: "running" }, capture: { manifest, stagingRetention: "retain" }, artifact: { processingStatus: "pending" } });
+    expect(await t.query(internal.collection.getStatus, { jobId })).toMatchObject({ job: { phase: "staged", status: "running" }, capture: { manifest, stagingRetention: "retain" }, artifact: { sha256: manifest.artifact.sha256 }, processing: [] });
   });
 
   test("distinct captures of identical bytes share one artifact document", async () => {
@@ -324,7 +324,7 @@ describe("maintainer-controlled collection state", () => {
     await expect(t.mutation(internal.collection.recordPublished, { jobId, attempt: claim.attempt, publication: { ...publication, manifestUrl: publication.manifestUrl.replace(publication.commitSha, "main") } })).rejects.toThrow("immutable commit");
     await t.mutation(internal.collection.recordPublished, { jobId, attempt: claim.attempt, publication });
     await t.mutation(internal.collection.recordPublished, { jobId, attempt: claim.attempt, publication });
-    expect(await t.query(internal.collection.getStatus, { jobId })).toMatchObject({ job: { status: "succeeded", phase: "published" }, capture: { status: "published", publication, stagingRetention: "retain" }, artifact: { processingStatus: "pending" } });
+    expect(await t.query(internal.collection.getStatus, { jobId })).toMatchObject({ job: { status: "succeeded", phase: "published" }, capture: { status: "published", publication, stagingRetention: "retain" }, artifact: { sha256: manifest.artifact.sha256 }, processing: [] });
     await expect(t.mutation(internal.collection.retryJob, { jobId })).rejects.toThrow("Retry a failed job");
   });
 

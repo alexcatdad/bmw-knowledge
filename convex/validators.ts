@@ -1,4 +1,5 @@
 import { v } from "convex/values";
+import { NORMALIZATION_WARNING_CODES, PROCESSING_FAILURE_CODES, PROCESSOR_NAME, PROCESSOR_VERSION } from "@bmw-knowledge/normalization/contract";
 
 export const seriesValidator = v.union(v.literal("E30"), v.literal("E46"));
 
@@ -95,4 +96,47 @@ export const jobErrorValidator = v.object({
   code: v.string(),
   message: v.string(),
   at: v.number(),
+});
+
+export const processingFailureCodeValidator = v.union(...PROCESSING_FAILURE_CODES.map((code) => v.literal(code)));
+
+export const processingManifestValidator = v.object({
+  schemaVersion: v.literal(1),
+  kind: v.literal("normalization_result"),
+  captureId: v.string(),
+  input: v.object({
+    artifactPath: v.string(),
+    sha256: v.string(),
+    byteLength: v.number(),
+    manifestSha256: v.string(),
+    commitSha: v.string(),
+  }),
+  processor: v.object({
+    name: v.literal(PROCESSOR_NAME),
+    version: v.literal(PROCESSOR_VERSION),
+    revision: v.string(),
+  }),
+  output: v.object({
+    path: v.string(),
+    sha256: v.string(),
+    byteLength: v.number(),
+    mediaType: v.union(v.literal("text/markdown"), v.literal("text/plain")),
+  }),
+  fixture: v.boolean(),
+  warnings: v.array(v.union(...NORMALIZATION_WARNING_CODES.map((code) => v.literal(code)))),
+});
+
+export const processingPublicationValidator = v.object({
+  owner: v.string(),
+  repo: v.string(),
+  commitSha: v.string(),
+});
+
+export const processingProofValidator = v.object({
+  inputSha256: v.string(),
+  inputByteLength: v.number(),
+  inputManifestSha256: v.string(),
+  outputSha256: v.string(),
+  outputByteLength: v.number(),
+  receiptSha256: v.string(),
 });

@@ -28,4 +28,17 @@ The [project-owned fixture](fixtures/http-source.html) contains no BMW evidence.
 [PRD](docs/PRD.md), [implementation decisions](decisions.jsonl), and
 [scope clarifications](docs/implementation-notes.md) record the product baseline.
 Research MCP and manual Deep Research report saving, normalization, and a tested
-scheduled discovery path remain later slices. The full MVP has not been accepted.
+scheduled discovery path define the remaining MVP work. The full MVP has not
+been accepted.
+
+The shared normalization processor converts captured UTF-8 HTML to Markdown or
+retains plain text as text. It verifies input hashes, preserves capture bytes,
+and records the processor revision, output hashes, fixture label, and known
+losses. Run it from a clean checkout at a pinned software commit; see the runbook
+for local commands and the prepared corpus workflow.
+
+Processing callbacks use a dedicated machine credential and prove the receipt
+and output at an immutable corpus commit before updating Convex. This endpoint
+is disabled when its secret is absent. The corpus workflow and real-source
+acceptance still require live configuration; local fixtures prove only the
+implementation behavior.

@@ -37,6 +37,7 @@ type Env = {
   readonly CORPUS_GITHUB_OWNER: string | undefined;
   readonly CORPUS_GITHUB_REPO: string | undefined;
   readonly CORPUS_GITHUB_TOKEN: string | undefined;
+  readonly PROCESSING_CALLBACK_SECRET: string | undefined;
   readonly S3_ACCESS_KEY_ID: string | undefined;
   readonly S3_BUCKET: string | undefined;
   readonly S3_ENDPOINT: string | undefined;
